@@ -5,15 +5,27 @@ export default class SimulationScene extends Phaser.Scene {
   creatures: Phaser.GameObjects.Arc[] = [];
   // Increased interaction distance to allow for interactions over a larger area.
   interactionDistance: number = 200;
-  interactionCooldown: number = 125; // Reduced from 500ms to 125ms for 4x faster interactions
+  interactionCooldown: number = 125; // 125ms cooldown for faster interactions
 
   // Resource thresholds for reproduction and death.
   reproductionThreshold: number = 200;
   reproductionCost: number = 100;
   minimumResource: number = 0;
 
-  // New maintenance cost: resources drain slowly over time.
+  // Maintenance cost: resources drain slowly over time.
   maintenanceCost: number = 1; // per second
+
+  // Carrying capacity and overpopulation factor.
+  carryingCapacity: number = 50; // Maximum number of creatures allowed.
+  overpopulationFactor: number = 0.5; // Extra resource drain per creature above capacity.
+
+  // Age mechanism: maximum age (in seconds) for a creature.
+  maxAge: number = 30;
+
+  // Group to hold food items.
+  foodGroup!: Phaser.GameObjects.Group;
+  // Food spawn timer interval (in milliseconds)
+  foodSpawnInterval: number = 2000;
 
   // UI text for simulation statistics.
   statsText!: Phaser.GameObjects.Text;
@@ -27,6 +39,17 @@ export default class SimulationScene extends Phaser.Scene {
   }
 
   create() {
+    // Create a group for food items.
+    this.foodGroup = this.add.group();
+
+    // Spawn food items periodically.
+    this.time.addEvent({
+      delay: this.foodSpawnInterval,
+      callback: this.spawnFood,
+      callbackScope: this,
+      loop: true,
+    });
+
     // Define strategies and corresponding colors.
     const strategies = [
       'tit-for-tat',
@@ -41,7 +64,7 @@ export default class SimulationScene extends Phaser.Scene {
       random: 0xffff00, // Yellow
     };
 
-    // Create creatures with an equal number for each strategy.
+    // Create initial creatures with an equal number for each strategy.
     const creaturesPerStrategy = 5;
     let creatureId = 0;
     strategies.forEach((strategy) => {
@@ -64,37 +87,55 @@ export default class SimulationScene extends Phaser.Scene {
         creature.setData('strategy', strategy);
         creature.setData('memory', new Map());
         creature.setData('lastInteractionTime', -this.interactionCooldown);
+        creature.setData('age', 0); // Initialize age
 
         this.creatures.push(creature);
       }
     });
 
     // Create a UI text element to display simulation statistics.
-    // Increased font size for readability and placed on top of all other elements.
     this.statsText = this.add.text(10, 10, '', {
-      fontSize: '32px',
+      fontSize: '24px',
       color: '#ffffff',
     });
-    // Fix the stats text on the screen and set a high depth so it appears on top.
     this.statsText.setScrollFactor(0);
     this.statsText.setDepth(1000);
   }
 
   update(time: number, delta: number) {
-    // Update positions, maintenance cost, and bounce off the edges.
-    this.creatures.forEach((creature) => {
-      // Apply maintenance cost (draining resources over time)
-      const currentResources = creature.getData('resources');
-      creature.setData(
-        'resources',
-        currentResources - this.maintenanceCost * (delta / 1000)
-      );
+    const deltaSeconds = delta / 1000;
 
+    // Update positions, maintenance cost, age, and bounce off the edges.
+    this.creatures.forEach((creature) => {
+      // Update age.
+      let age = creature.getData('age');
+      age += deltaSeconds;
+      creature.setData('age', age);
+      // Kill creature if it exceeds max age.
+      if (age > this.maxAge) {
+        creature.destroy();
+        return;
+      }
+
+      // Apply maintenance cost.
+      let currentResources = creature.getData('resources');
+      currentResources -= this.maintenanceCost * deltaSeconds;
+
+      // Apply extra drain if population exceeds carrying capacity.
+      if (this.creatures.length > this.carryingCapacity) {
+        const extraDrain =
+          (this.creatures.length - this.carryingCapacity) *
+          this.overpopulationFactor *
+          deltaSeconds;
+        currentResources -= extraDrain;
+      }
+      creature.setData('resources', currentResources);
+
+      // Update movement.
       let vx = creature.getData('velocityX');
       let vy = creature.getData('velocityY');
-
-      let newX = creature.x + vx * (delta / 1000);
-      let newY = creature.y + vy * (delta / 1000);
+      let newX = creature.x + vx * deltaSeconds;
+      let newY = creature.y + vy * deltaSeconds;
 
       // Bounce off horizontal boundaries.
       if (newX < 20 || newX > (this.game.config.width as number) - 20) {
@@ -107,11 +148,14 @@ export default class SimulationScene extends Phaser.Scene {
         creature.setData('velocityY', vy);
       }
 
-      creature.x += vx * (delta / 1000);
-      creature.y += vy * (delta / 1000);
+      creature.x += vx * deltaSeconds;
+      creature.y += vy * deltaSeconds;
     });
 
-    // Process interactions for each unique pair.
+    // **Fix:** Remove destroyed creatures from the simulation.
+    this.creatures = this.creatures.filter((creature) => creature.active);
+
+    // Check for interactions (IPD rounds) between creatures.
     for (let i = 0; i < this.creatures.length; i++) {
       for (let j = i + 1; j < this.creatures.length; j++) {
         const creatureA = this.creatures[i];
@@ -133,18 +177,53 @@ export default class SimulationScene extends Phaser.Scene {
           creatureB.x,
           creatureB.y
         );
-
         if (distance < this.interactionDistance) {
           this.handleIPDRound(creatureA, creatureB, time);
         }
       }
     }
 
-    // Check for death and reproduction.
+    // Handle food consumption.
+    // @ts-ignore
+    this.foodGroup.getChildren().forEach((food: Phaser.GameObjects.Arc) => {
+      this.creatures.forEach((creature) => {
+        const distance = Phaser.Math.Distance.Between(
+          creature.x,
+          creature.y,
+          food.x,
+          food.y
+        );
+        if (distance < 25) {
+          const foodValue = food.getData('value') || 50;
+          creature.setData(
+            'resources',
+            creature.getData('resources') + foodValue
+          );
+          food.destroy();
+        }
+      });
+    });
+
+    // Handle reproduction and death based on resource levels.
     this.handleLifeCycle(time);
 
     // Update simulation statistics on screen.
     this.updateStats();
+  }
+
+  // Spawns a food item at a random location.
+  spawnFood() {
+    const x = Phaser.Math.Between(20, (this.game.config.width as number) - 20);
+    const y = Phaser.Math.Between(20, (this.game.config.height as number) - 20);
+    const food = this.add.circle(x, y, 10, 0x00ff00);
+    food.setData('value', 50);
+    this.foodGroup.add(food);
+    this.tweens.add({
+      targets: food,
+      alpha: 0,
+      duration: 10000,
+      onComplete: () => food.destroy(),
+    });
   }
 
   // Handles one round of the Iterated Prisoner’s Dilemma between two creatures.
@@ -153,15 +232,9 @@ export default class SimulationScene extends Phaser.Scene {
     creatureB: Phaser.GameObjects.Arc,
     time: number
   ) {
-    // Determine actions for each creature.
     const actionA = this.getAction(creatureA, creatureB);
     const actionB = this.getAction(creatureB, creatureA);
 
-    // Define a payoff matrix:
-    // - Both Cooperate: +3 resources each.
-    // - A cooperates, B defects: A loses 2, B gains 5.
-    // - A defects, B cooperates: A gains 5, B loses 2.
-    // - Both Defect: -1 resource each.
     let payoffA = 0;
     let payoffB = 0;
 
@@ -179,7 +252,6 @@ export default class SimulationScene extends Phaser.Scene {
       payoffB = -1;
     }
 
-    // Update each creature's resources.
     creatureA.setData('resources', creatureA.getData('resources') + payoffA);
     creatureB.setData('resources', creatureB.getData('resources') + payoffB);
 
@@ -187,14 +259,11 @@ export default class SimulationScene extends Phaser.Scene {
     this.updateMemory(creatureA, creatureB, actionB);
     this.updateMemory(creatureB, creatureA, actionA);
 
-    // Set the last interaction time for both creatures.
     creatureA.setData('lastInteractionTime', time);
     creatureB.setData('lastInteractionTime', time);
 
-    // Create a visual effect to indicate the interaction.
     this.createInteractionEffect(creatureA, creatureB, actionA, actionB);
 
-    // Log the interaction for debugging.
     console.log(
       `Creature ${creatureA.getData('id')} (${creatureA.getData(
         'strategy'
@@ -208,7 +277,7 @@ export default class SimulationScene extends Phaser.Scene {
     );
   }
 
-  // Returns the action ('C' for cooperate, 'D' for defect) based on the creature's strategy.
+  // Determines an action ('C' for cooperate, 'D' for defect) based on strategy and memory.
   getAction(
     creature: Phaser.GameObjects.Arc,
     opponent: Phaser.GameObjects.Arc
@@ -222,23 +291,17 @@ export default class SimulationScene extends Phaser.Scene {
     } else if (strategy === 'always defect') {
       return 'D';
     } else if (strategy === 'tit-for-tat') {
-      // Mimic the opponent's last move if recorded.
       const pastMoves = memory.get(opponentId);
-      if (pastMoves && pastMoves.length > 0) {
-        return pastMoves[pastMoves.length - 1] as 'C' | 'D';
-      } else {
-        // Cooperate by default on the first encounter.
-        return 'C';
-      }
+      return pastMoves && pastMoves.length > 0
+        ? (pastMoves[pastMoves.length - 1] as 'C' | 'D')
+        : 'C';
     } else if (strategy === 'random') {
-      // Randomly choose between cooperation and defection.
       return Phaser.Math.Between(0, 1) === 0 ? 'C' : 'D';
     }
-    // Default action.
     return 'C';
   }
 
-  // Updates the memory of a creature regarding its opponent’s last action.
+  // Records the opponent's last action in the creature's memory.
   updateMemory(
     creature: Phaser.GameObjects.Arc,
     opponent: Phaser.GameObjects.Arc,
@@ -254,22 +317,20 @@ export default class SimulationScene extends Phaser.Scene {
     history.push(opponentAction);
   }
 
-  // Creates a visual effect (two lines) to clearly represent each creature's action.
+  // Creates a visual effect to represent each creature's action.
   createInteractionEffect(
     creatureA: Phaser.GameObjects.Arc,
     creatureB: Phaser.GameObjects.Arc,
     actionA: 'C' | 'D',
     actionB: 'C' | 'D'
   ) {
-    // Calculate a perpendicular offset so the two lines don't overlap.
     const dx = creatureB.x - creatureA.x;
     const dy = creatureB.y - creatureA.y;
-    const length = Math.sqrt(dx * dx + dy * dy) || 1; // avoid division by zero
-    const offsetAmount = 5; // pixels of offset
+    const length = Math.sqrt(dx * dx + dy * dy) || 1;
+    const offsetAmount = 5;
     const offsetX = -(dy / length) * offsetAmount;
     const offsetY = (dx / length) * offsetAmount;
 
-    // Creature A's action line.
     const colorA = actionA === 'C' ? 0x00ff00 : 0xff0000;
     const graphicsA = this.add.graphics();
     graphicsA.lineStyle(4, colorA, 1);
@@ -278,7 +339,6 @@ export default class SimulationScene extends Phaser.Scene {
     graphicsA.lineTo(creatureB.x + offsetX, creatureB.y + offsetY);
     graphicsA.strokePath();
 
-    // Creature B's action line.
     const colorB = actionB === 'C' ? 0x00ff00 : 0xff0000;
     const graphicsB = this.add.graphics();
     graphicsB.lineStyle(4, colorB, 1);
@@ -287,7 +347,6 @@ export default class SimulationScene extends Phaser.Scene {
     graphicsB.lineTo(creatureA.x - offsetX, creatureA.y - offsetY);
     graphicsB.strokePath();
 
-    // Fade out and destroy the graphics after a short duration.
     this.tweens.add({
       targets: graphicsA,
       alpha: 0,
@@ -310,18 +369,17 @@ export default class SimulationScene extends Phaser.Scene {
     for (let creature of this.creatures) {
       const resources = creature.getData('resources');
 
-      // If resources are too low, the creature dies.
       if (resources <= this.minimumResource) {
         creature.destroy();
         continue;
       }
 
-      // If resources exceed the reproduction threshold, spawn offspring.
-      if (resources >= this.reproductionThreshold) {
-        // Deduct reproduction cost.
+      if (
+        resources >= this.reproductionThreshold &&
+        this.creatures.length < this.carryingCapacity
+      ) {
         creature.setData('resources', resources - this.reproductionCost);
 
-        // Determine offspring spawn position (clamped within boundaries).
         let newX = creature.x + Phaser.Math.Between(-30, 30);
         let newY = creature.y + Phaser.Math.Between(-30, 30);
         newX = Phaser.Math.Clamp(
@@ -335,20 +393,15 @@ export default class SimulationScene extends Phaser.Scene {
           (this.game.config.height as number) - 20
         );
 
-        // Create the offspring creature.
         const offspring = this.add.circle(newX, newY, 20, creature.fillColor);
         offspring.setData('velocityX', Phaser.Math.Between(-100, 100));
         offspring.setData('velocityY', Phaser.Math.Between(-100, 100));
-        // Assign a new unique id.
         offspring.setData('id', Date.now() + Math.random());
-        // Offspring starts with a base resource amount.
         offspring.setData('resources', 100);
-        // Inherit the parent's strategy.
         offspring.setData('strategy', creature.getData('strategy'));
-        // Start with an empty memory.
         offspring.setData('memory', new Map());
-        // Initialize last interaction time to current time to prevent immediate interactions.
         offspring.setData('lastInteractionTime', currentTime);
+        offspring.setData('age', 0);
 
         newCreatures.push(offspring);
       }
@@ -356,11 +409,10 @@ export default class SimulationScene extends Phaser.Scene {
       survivors.push(creature);
     }
 
-    // Update the creatures array with survivors and new offspring.
     this.creatures = survivors.concat(newCreatures);
   }
 
-  // Updates the on-screen simulation statistics.
+  // Updates the on-screen statistics.
   updateStats() {
     const total = this.creatures.length;
     const strategyCounts: Record<string, number> = {
@@ -370,20 +422,26 @@ export default class SimulationScene extends Phaser.Scene {
       random: 0,
     };
     let totalResources = 0;
+    let totalAge = 0;
     for (let creature of this.creatures) {
       const strat = creature.getData('strategy');
       strategyCounts[strat] = (strategyCounts[strat] || 0) + 1;
       totalResources += creature.getData('resources');
+      totalAge += creature.getData('age');
     }
     const avgResources = total > 0 ? (totalResources / total).toFixed(1) : 0;
+    const avgAge = total > 0 ? (totalAge / total).toFixed(1) : 0;
+    const foodCount = this.foodGroup.getLength();
 
     this.statsText.setText(
-      `Creatures: ${total}\n` +
+      `Creatures: ${total} (Capacity: ${this.carryingCapacity})\n` +
         `Tit-for-Tat: ${strategyCounts['tit-for-tat']}\n` +
         `Always Cooperate: ${strategyCounts['always cooperate']}\n` +
         `Always Defect: ${strategyCounts['always defect']}\n` +
         `Random: ${strategyCounts['random']}\n` +
-        `Avg. Resources: ${avgResources}`
+        `Avg. Resources: ${avgResources}\n` +
+        `Avg. Age: ${avgAge}s\n` +
+        `Food Items: ${foodCount}`
     );
   }
 }
