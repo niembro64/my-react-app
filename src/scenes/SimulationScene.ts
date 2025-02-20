@@ -1,7 +1,7 @@
 // SimulationScene.ts
 import Phaser from 'phaser';
 
-const cps_init: number = 100;
+const cps_init: number = 5;
 
 const colorGreen: number = 0x33bb55;
 const colorRed: number = 0xff5555;
