@@ -3,7 +3,6 @@ import Phaser from 'phaser';
 
 export default class SimulationScene extends Phaser.Scene {
   creatures: Phaser.GameObjects.Arc[] = [];
-  // Increased interaction distance to allow for interactions over a larger area.
   interactionDistance: number = 200;
   interactionCooldown: number = 125; // 125ms cooldown for faster interactions
 
@@ -15,8 +14,8 @@ export default class SimulationScene extends Phaser.Scene {
   // Maintenance cost: resources drain slowly over time.
   maintenanceCost: number = 1; // per second
 
-  // Carrying capacity and overpopulation factor.
-  carryingCapacity: number = 50; // Maximum number of creatures allowed.
+  // Maximum number of creatures allowed.
+  carryingCapacity: number = 100; // Updated to 100 max agents.
   overpopulationFactor: number = 0.5; // Extra resource drain per creature above capacity.
 
   // Age mechanism: maximum age (in seconds) for a creature.
@@ -56,12 +55,14 @@ export default class SimulationScene extends Phaser.Scene {
       'always cooperate',
       'always defect',
       'random',
+      'win-stay-lose-shift',
     ];
     const strategyColors: Record<string, number> = {
       'tit-for-tat': 0x0000ff, // Blue
       'always cooperate': 0xffc0cb, // Pink
       'always defect': 0x800080, // Purple
       random: 0xffff00, // Yellow
+      'win-stay-lose-shift': 0x00ffff, // Cyan
     };
 
     // Create initial creatures with an equal number for each strategy.
@@ -88,6 +89,13 @@ export default class SimulationScene extends Phaser.Scene {
         creature.setData('memory', new Map());
         creature.setData('lastInteractionTime', -this.interactionCooldown);
         creature.setData('age', 0); // Initialize age
+        creature.setData('lastPartner', null); // Initialize last partner
+
+        // Initialize win-stay-lose-shift specific parameters.
+        if (strategy === 'win-stay-lose-shift') {
+          creature.setData('lastAction', 'C');
+          creature.setData('lastPayoff', 3); // Default positive payoff
+        }
 
         this.creatures.push(creature);
       }
@@ -152,7 +160,7 @@ export default class SimulationScene extends Phaser.Scene {
       creature.y += vy * deltaSeconds;
     });
 
-    // **Fix:** Remove destroyed creatures from the simulation.
+    // Remove destroyed creatures from the simulation.
     this.creatures = this.creatures.filter((creature) => creature.active);
 
     // Check for interactions (IPD rounds) between creatures.
@@ -167,6 +175,16 @@ export default class SimulationScene extends Phaser.Scene {
         if (
           time - lastA < this.interactionCooldown ||
           time - lastB < this.interactionCooldown
+        ) {
+          continue;
+        }
+
+        // Check if either creature just interacted with the other.
+        const lastPartnerA = creatureA.getData('lastPartner');
+        const lastPartnerB = creatureB.getData('lastPartner');
+        if (
+          lastPartnerA === creatureB.getData('id') ||
+          lastPartnerB === creatureA.getData('id')
         ) {
           continue;
         }
@@ -206,6 +224,20 @@ export default class SimulationScene extends Phaser.Scene {
 
     // Handle reproduction and death based on resource levels.
     this.handleLifeCycle(time);
+
+    // Handle overpopulation: if number of agents exceeds carrying capacity (100), remove the weakest agents.
+    if (this.creatures.length > this.carryingCapacity) {
+      // Sort creatures by resources in ascending order.
+      const sortedCreatures = this.creatures.slice().sort((a, b) => {
+        return a.getData('resources') - b.getData('resources');
+      });
+      const numToRemove = this.creatures.length - this.carryingCapacity;
+      for (let i = 0; i < numToRemove; i++) {
+        sortedCreatures[i].destroy();
+      }
+      // Clean up the list after removals.
+      this.creatures = this.creatures.filter((creature) => creature.active);
+    }
 
     // Update simulation statistics on screen.
     this.updateStats();
@@ -259,21 +291,34 @@ export default class SimulationScene extends Phaser.Scene {
     this.updateMemory(creatureA, creatureB, actionB);
     this.updateMemory(creatureB, creatureA, actionA);
 
+    // Update win-stay-lose-shift parameters.
+    if (creatureA.getData('strategy') === 'win-stay-lose-shift') {
+      creatureA.setData('lastAction', actionA);
+      creatureA.setData('lastPayoff', payoffA);
+    }
+    if (creatureB.getData('strategy') === 'win-stay-lose-shift') {
+      creatureB.setData('lastAction', actionB);
+      creatureB.setData('lastPayoff', payoffB);
+    }
+
+    // Update interaction times and last partners.
     creatureA.setData('lastInteractionTime', time);
     creatureB.setData('lastInteractionTime', time);
+    creatureA.setData('lastPartner', creatureB.getData('id'));
+    creatureB.setData('lastPartner', creatureA.getData('id'));
 
     this.createInteractionEffect(creatureA, creatureB, actionA, actionB);
 
     console.log(
       `Creature ${creatureA.getData('id')} (${creatureA.getData(
         'strategy'
-      )}) chose ${actionA} vs. ` +
-        `Creature ${creatureB.getData('id')} (${creatureB.getData(
-          'strategy'
-        )}) chose ${actionB} => ` +
-        `Resources: ${creatureA.getData('resources')}, ${creatureB.getData(
-          'resources'
-        )}`
+      )}) chose ${actionA} vs. Creature ${creatureB.getData(
+        'id'
+      )} (${creatureB.getData(
+        'strategy'
+      )}) chose ${actionB} => Resources: ${creatureA.getData(
+        'resources'
+      )}, ${creatureB.getData('resources')}`
     );
   }
 
@@ -297,6 +342,18 @@ export default class SimulationScene extends Phaser.Scene {
         : 'C';
     } else if (strategy === 'random') {
       return Phaser.Math.Between(0, 1) === 0 ? 'C' : 'D';
+    } else if (strategy === 'win-stay-lose-shift') {
+      let lastAction: 'C' | 'D' = creature.getData('lastAction') || 'C';
+      let lastPayoff: number =
+        creature.getData('lastPayoff') !== undefined
+          ? creature.getData('lastPayoff')
+          : 3;
+      // If the previous payoff was positive, keep the same move; otherwise, switch.
+      if (lastPayoff > 0) {
+        return lastAction;
+      } else {
+        return lastAction === 'C' ? 'D' : 'C';
+      }
     }
     return 'C';
   }
@@ -374,10 +431,7 @@ export default class SimulationScene extends Phaser.Scene {
         continue;
       }
 
-      if (
-        resources >= this.reproductionThreshold &&
-        this.creatures.length < this.carryingCapacity
-      ) {
+      if (resources >= this.reproductionThreshold) {
         creature.setData('resources', resources - this.reproductionCost);
 
         let newX = creature.x + Phaser.Math.Between(-30, 30);
@@ -402,6 +456,13 @@ export default class SimulationScene extends Phaser.Scene {
         offspring.setData('memory', new Map());
         offspring.setData('lastInteractionTime', currentTime);
         offspring.setData('age', 0);
+        offspring.setData('lastPartner', null);
+
+        // Inherit win-stay-lose-shift parameters if applicable.
+        if (creature.getData('strategy') === 'win-stay-lose-shift') {
+          offspring.setData('lastAction', 'C');
+          offspring.setData('lastPayoff', 3);
+        }
 
         newCreatures.push(offspring);
       }
@@ -420,6 +481,7 @@ export default class SimulationScene extends Phaser.Scene {
       'always cooperate': 0,
       'always defect': 0,
       random: 0,
+      'win-stay-lose-shift': 0,
     };
     let totalResources = 0;
     let totalAge = 0;
@@ -434,11 +496,12 @@ export default class SimulationScene extends Phaser.Scene {
     const foodCount = this.foodGroup.getLength();
 
     this.statsText.setText(
-      `Creatures: ${total} (Capacity: ${this.carryingCapacity})\n` +
+      `Creatures: ${total} (Max: ${this.carryingCapacity})\n` +
         `Tit-for-Tat: ${strategyCounts['tit-for-tat']}\n` +
         `Always Cooperate: ${strategyCounts['always cooperate']}\n` +
         `Always Defect: ${strategyCounts['always defect']}\n` +
         `Random: ${strategyCounts['random']}\n` +
+        `Win-Stay Lose-Shift: ${strategyCounts['win-stay-lose-shift']}\n` +
         `Avg. Resources: ${avgResources}\n` +
         `Avg. Age: ${avgAge}s\n` +
         `Food Items: ${foodCount}`
