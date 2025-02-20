@@ -1,4 +1,3 @@
-// src/scenes/SimulationScene.ts
 import Phaser from 'phaser';
 
 export default class SimulationScene extends Phaser.Scene {
@@ -129,6 +128,9 @@ export default class SimulationScene extends Phaser.Scene {
     this.updateMemory(creatureA, creatureB, actionB);
     this.updateMemory(creatureB, creatureA, actionA);
 
+    // Create a visual effect to indicate the interaction.
+    this.createInteractionEffect(creatureA, creatureB, actionA, actionB);
+
     // Log the interaction for debugging.
     console.log(
       `Creature ${creatureA.getData('id')} (${creatureA.getData(
@@ -184,5 +186,38 @@ export default class SimulationScene extends Phaser.Scene {
       memory.set(opponentId, history);
     }
     history.push(opponentAction);
+  }
+
+  // Creates a visual effect (a temporary line) between interacting creatures.
+  createInteractionEffect(
+    creatureA: Phaser.GameObjects.Arc,
+    creatureB: Phaser.GameObjects.Arc,
+    actionA: 'C' | 'D',
+    actionB: 'C' | 'D'
+  ) {
+    const graphics = this.add.graphics();
+    let color: number;
+
+    if (actionA === 'C' && actionB === 'C') {
+      color = 0x00ff00; // Green for mutual cooperation.
+    } else if (actionA === 'D' && actionB === 'D') {
+      color = 0xff0000; // Red for mutual defection.
+    } else {
+      color = 0xffff00; // Yellow for mixed actions.
+    }
+
+    graphics.lineStyle(2, color, 1);
+    graphics.beginPath();
+    graphics.moveTo(creatureA.x, creatureA.y);
+    graphics.lineTo(creatureB.x, creatureB.y);
+    graphics.strokePath();
+
+    // Fade out and destroy the graphics after a short duration.
+    this.tweens.add({
+      targets: graphics,
+      alpha: 0,
+      duration: 500,
+      onComplete: () => graphics.destroy(),
+    });
   }
 }

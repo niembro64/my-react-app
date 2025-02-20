@@ -1,4 +1,3 @@
-// src/components/Home.tsx
 import React, { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import SimulationScene from '../scenes/SimulationScene';
