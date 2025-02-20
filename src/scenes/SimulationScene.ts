@@ -3,8 +3,8 @@ import Phaser from 'phaser';
 
 const cps_init: number = 100;
 
-const colorGreen: number = 0x00ff00;
-const colorRed: number = 0xff0000;
+const colorGreen: number = 0x33bb55;
+const colorRed: number = 0xff5555;
 const lineWidtth: number = 2;
 
 // Helper to convert a numeric color to a hex string.
@@ -478,7 +478,7 @@ export default class SimulationScene extends Phaser.Scene {
     const dx: number = creatureB.x - creatureA.x;
     const dy: number = creatureB.y - creatureA.y;
     const length: number = Math.sqrt(dx * dx + dy * dy) || 1;
-    const offsetAmount: number = 5;
+    const offsetAmount: number = 2;
     const offsetX: number = -(dy / length) * offsetAmount;
     const offsetY: number = (dx / length) * offsetAmount;
     const graphicsA: Phaser.GameObjects.Graphics = this.add.graphics();
