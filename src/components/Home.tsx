@@ -1,4 +1,4 @@
-// src/components/PhaserGame.tsx
+// src/components/Home.tsx
 import React, { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import SimulationScene from '../scenes/SimulationScene';
@@ -23,7 +23,7 @@ const PhaserGame: React.FC = () => {
 
     const game = new Phaser.Game(config);
 
-    // Clean up the game instance when component unmounts.
+    // Clean up the game instance when the component unmounts.
     return () => {
       game.destroy(true);
     };
