@@ -4,7 +4,7 @@ import Phaser from 'phaser';
 export default class SimulationScene extends Phaser.Scene {
   creatures: Phaser.GameObjects.Arc[] = [];
   interactionDistance: number = 200;
-  interactionCooldown: number = 125; // 125ms cooldown for faster interactions
+  interactionCooldown: number = 200; // 125ms cooldown for faster interactions
 
   // Resource thresholds for reproduction and death.
   reproductionThreshold: number = 200;
@@ -66,7 +66,7 @@ export default class SimulationScene extends Phaser.Scene {
     };
 
     // Create initial creatures with an equal number for each strategy.
-    const creaturesPerStrategy = 5;
+    const creaturesPerStrategy = 20;
     let creatureId = 0;
     strategies.forEach((strategy) => {
       for (let i = 0; i < creaturesPerStrategy; i++) {
@@ -179,15 +179,9 @@ export default class SimulationScene extends Phaser.Scene {
           continue;
         }
 
-        // Check if either creature just interacted with the other.
-        const lastPartnerA = creatureA.getData('lastPartner');
-        const lastPartnerB = creatureB.getData('lastPartner');
-        if (
-          lastPartnerA === creatureB.getData('id') ||
-          lastPartnerB === creatureA.getData('id')
-        ) {
-          continue;
-        }
+        // *** Removed last-partner check to allow repeated interactions ***
+        // This change lets agents interact repeatedly, which is critical for WSLS
+        // to adapt based on consecutive rounds with the same opponent.
 
         const distance = Phaser.Math.Distance.Between(
           creatureA.x,
