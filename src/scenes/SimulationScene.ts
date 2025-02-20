@@ -1,7 +1,11 @@
 // SimulationScene.ts
 import Phaser from 'phaser';
 
-const cps_init: number = 10;
+const cps_init: number = 100;
+
+const colorGreen: number = 0x00ff00;
+const colorRed: number = 0xff0000;
+const lineWidtth: number = 2;
 
 // Helper to convert a numeric color to a hex string.
 const colorToHex = (color: number): string =>
@@ -103,7 +107,7 @@ export default class SimulationScene extends Phaser.Scene {
   maintenanceCost: number = 1;
   carryingCapacity: number = cps_init * 7;
   overpopulationFactor: number = 0.5;
-  deathRateFactor: number = 0.002;
+  deathRateFactor: number = 0.0001;
 
   foodGroup!: Phaser.GameObjects.Group;
   foodSpawnInterval: number = 2000;
@@ -179,10 +183,14 @@ export default class SimulationScene extends Phaser.Scene {
       }
     });
 
-    // Create the status text (now also serving as the legend).
+    // Create the status text (now also serving as the legend) with extra bold style.
     this.statsText = this.add.text(10, 10, '', {
       fontSize: '24px',
       color: '#ffffff',
+      fontStyle: 'bold',
+      // @ts-ignore
+      fontWeight: '900',
+      fontFamily: 'Arial Black',
     });
     this.statsText.setScrollFactor(0);
     this.statsText.setDepth(1000);
@@ -319,7 +327,7 @@ export default class SimulationScene extends Phaser.Scene {
       20,
       (this.game.config.height as number) - 20
     );
-    const food: Phaser.GameObjects.Arc = this.add.circle(x, y, 10, 0x00ff00);
+    const food: Phaser.GameObjects.Arc = this.add.circle(x, y, 10, 0xffffff);
     food.setData('value', 50);
     this.foodGroup.add(food);
     this.tweens.add({
@@ -475,8 +483,8 @@ export default class SimulationScene extends Phaser.Scene {
     const offsetY: number = (dx / length) * offsetAmount;
     const graphicsA: Phaser.GameObjects.Graphics = this.add.graphics();
     graphicsA.lineStyle(
-      this.creatureRadius / 2,
-      actionA === 'C' ? 0x00ff00 : 0xff0000,
+      lineWidtth / 2,
+      actionA === 'C' ? colorGreen : colorRed,
       1
     );
     graphicsA.beginPath();
@@ -485,8 +493,8 @@ export default class SimulationScene extends Phaser.Scene {
     graphicsA.strokePath();
     const graphicsB: Phaser.GameObjects.Graphics = this.add.graphics();
     graphicsB.lineStyle(
-      this.creatureRadius / 2,
-      actionB === 'C' ? 0x00ff00 : 0xff0000,
+      lineWidtth / 2,
+      actionB === 'C' ? colorGreen : colorRed,
       1
     );
     graphicsB.beginPath();
