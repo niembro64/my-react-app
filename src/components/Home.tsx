@@ -1,3 +1,5 @@
+
+// Home.tsx
 import React, { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import SimulationScene from '../scenes/SimulationScene';
@@ -13,16 +15,16 @@ const PhaserGame: React.FC = () => {
       parent: gameRef.current!,
       scene: SimulationScene,
       physics: {
-        default: 'arcade',
-        arcade: {
-          debug: false,
+        default: 'matter',
+        matter: {
+          debug: false, // Set to true for visual debugging of bodies and sensors.
         },
       },
     };
 
     const game = new Phaser.Game(config);
 
-    // Clean up the game instance when the component unmounts.
+    // Clean up the Phaser game instance on component unmount.
     return () => {
       game.destroy(true);
     };

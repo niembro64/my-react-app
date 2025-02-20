@@ -1,8 +1,22 @@
+// SimulationScene.ts
 import Phaser from 'phaser';
 
 export default class SimulationScene extends Phaser.Scene {
   creatures: Phaser.GameObjects.Arc[] = [];
-  interactionDistance: number = 50; // distance threshold for interactions
+  // Increased interaction distance to allow for interactions over a larger area.
+  interactionDistance: number = 200;
+  interactionCooldown: number = 125; // Reduced from 500ms to 125ms for 4x faster interactions
+
+  // Resource thresholds for reproduction and death.
+  reproductionThreshold: number = 200;
+  reproductionCost: number = 100;
+  minimumResource: number = 0;
+
+  // New maintenance cost: resources drain slowly over time.
+  maintenanceCost: number = 1; // per second
+
+  // UI text for simulation statistics.
+  statsText!: Phaser.GameObjects.Text;
 
   constructor() {
     super({ key: 'SimulationScene' });
@@ -13,42 +27,69 @@ export default class SimulationScene extends Phaser.Scene {
   }
 
   create() {
-    const strategies = ['tit-for-tat', 'always cooperate', 'always defect'];
+    // Define strategies and corresponding colors.
+    const strategies = [
+      'tit-for-tat',
+      'always cooperate',
+      'always defect',
+      'random',
+    ];
+    const strategyColors: Record<string, number> = {
+      'tit-for-tat': 0x0000ff, // Blue
+      'always cooperate': 0xffc0cb, // Pink
+      'always defect': 0x800080, // Purple
+      random: 0xffff00, // Yellow
+    };
 
-    // Create 10 creatures with random positions, velocities, and strategies.
-    for (let i = 0; i < 10; i++) {
-      const x = Phaser.Math.Between(
-        50,
-        (this.game.config.width as number) - 50
-      );
-      const y = Phaser.Math.Between(
-        50,
-        (this.game.config.height as number) - 50
-      );
-      const creature = this.add.circle(x, y, 20, 0x00ff00);
+    // Create creatures with an equal number for each strategy.
+    const creaturesPerStrategy = 5;
+    let creatureId = 0;
+    strategies.forEach((strategy) => {
+      for (let i = 0; i < creaturesPerStrategy; i++) {
+        const x = Phaser.Math.Between(
+          50,
+          (this.game.config.width as number) - 50
+        );
+        const y = Phaser.Math.Between(
+          50,
+          (this.game.config.height as number) - 50
+        );
+        const creatureColor = strategyColors[strategy];
+        const creature = this.add.circle(x, y, 20, creatureColor);
 
-      // Assign random velocities (pixels per second)
-      creature.setData('velocityX', Phaser.Math.Between(-100, 100));
-      creature.setData('velocityY', Phaser.Math.Between(-100, 100));
+        creature.setData('velocityX', Phaser.Math.Between(-100, 100));
+        creature.setData('velocityY', Phaser.Math.Between(-100, 100));
+        creature.setData('id', creatureId++);
+        creature.setData('resources', 100);
+        creature.setData('strategy', strategy);
+        creature.setData('memory', new Map());
+        creature.setData('lastInteractionTime', -this.interactionCooldown);
 
-      // Assign an ID for memory tracking.
-      creature.setData('id', i);
-      // Each creature starts with 100 resource points.
-      creature.setData('resources', 100);
-      // Randomly assign a strategy.
-      const randomStrategy =
-        strategies[Phaser.Math.Between(0, strategies.length - 1)];
-      creature.setData('strategy', randomStrategy);
-      // Initialize memory (to store past moves against other creatures).
-      creature.setData('memory', new Map());
+        this.creatures.push(creature);
+      }
+    });
 
-      this.creatures.push(creature);
-    }
+    // Create a UI text element to display simulation statistics.
+    // Increased font size for readability and placed on top of all other elements.
+    this.statsText = this.add.text(10, 10, '', {
+      fontSize: '32px',
+      color: '#ffffff',
+    });
+    // Fix the stats text on the screen and set a high depth so it appears on top.
+    this.statsText.setScrollFactor(0);
+    this.statsText.setDepth(1000);
   }
 
   update(time: number, delta: number) {
-    // Update positions and bounce off the edges.
+    // Update positions, maintenance cost, and bounce off the edges.
     this.creatures.forEach((creature) => {
+      // Apply maintenance cost (draining resources over time)
+      const currentResources = creature.getData('resources');
+      creature.setData(
+        'resources',
+        currentResources - this.maintenanceCost * (delta / 1000)
+      );
+
       let vx = creature.getData('velocityX');
       let vy = creature.getData('velocityY');
 
@@ -75,6 +116,17 @@ export default class SimulationScene extends Phaser.Scene {
       for (let j = i + 1; j < this.creatures.length; j++) {
         const creatureA = this.creatures[i];
         const creatureB = this.creatures[j];
+
+        // Check cooldown for both creatures.
+        const lastA = creatureA.getData('lastInteractionTime') || 0;
+        const lastB = creatureB.getData('lastInteractionTime') || 0;
+        if (
+          time - lastA < this.interactionCooldown ||
+          time - lastB < this.interactionCooldown
+        ) {
+          continue;
+        }
+
         const distance = Phaser.Math.Distance.Between(
           creatureA.x,
           creatureA.y,
@@ -83,16 +135,23 @@ export default class SimulationScene extends Phaser.Scene {
         );
 
         if (distance < this.interactionDistance) {
-          this.handleIPDRound(creatureA, creatureB);
+          this.handleIPDRound(creatureA, creatureB, time);
         }
       }
     }
+
+    // Check for death and reproduction.
+    this.handleLifeCycle(time);
+
+    // Update simulation statistics on screen.
+    this.updateStats();
   }
 
   // Handles one round of the Iterated Prisoner’s Dilemma between two creatures.
   handleIPDRound(
     creatureA: Phaser.GameObjects.Arc,
-    creatureB: Phaser.GameObjects.Arc
+    creatureB: Phaser.GameObjects.Arc,
+    time: number
   ) {
     // Determine actions for each creature.
     const actionA = this.getAction(creatureA, creatureB);
@@ -128,6 +187,10 @@ export default class SimulationScene extends Phaser.Scene {
     this.updateMemory(creatureA, creatureB, actionB);
     this.updateMemory(creatureB, creatureA, actionA);
 
+    // Set the last interaction time for both creatures.
+    creatureA.setData('lastInteractionTime', time);
+    creatureB.setData('lastInteractionTime', time);
+
     // Create a visual effect to indicate the interaction.
     this.createInteractionEffect(creatureA, creatureB, actionA, actionB);
 
@@ -159,7 +222,7 @@ export default class SimulationScene extends Phaser.Scene {
     } else if (strategy === 'always defect') {
       return 'D';
     } else if (strategy === 'tit-for-tat') {
-      // If there is a recorded history, mimic the opponent's last move.
+      // Mimic the opponent's last move if recorded.
       const pastMoves = memory.get(opponentId);
       if (pastMoves && pastMoves.length > 0) {
         return pastMoves[pastMoves.length - 1] as 'C' | 'D';
@@ -167,6 +230,9 @@ export default class SimulationScene extends Phaser.Scene {
         // Cooperate by default on the first encounter.
         return 'C';
       }
+    } else if (strategy === 'random') {
+      // Randomly choose between cooperation and defection.
+      return Phaser.Math.Between(0, 1) === 0 ? 'C' : 'D';
     }
     // Default action.
     return 'C';
@@ -188,36 +254,136 @@ export default class SimulationScene extends Phaser.Scene {
     history.push(opponentAction);
   }
 
-  // Creates a visual effect (a temporary line) between interacting creatures.
+  // Creates a visual effect (two lines) to clearly represent each creature's action.
   createInteractionEffect(
     creatureA: Phaser.GameObjects.Arc,
     creatureB: Phaser.GameObjects.Arc,
     actionA: 'C' | 'D',
     actionB: 'C' | 'D'
   ) {
-    const graphics = this.add.graphics();
-    let color: number;
+    // Calculate a perpendicular offset so the two lines don't overlap.
+    const dx = creatureB.x - creatureA.x;
+    const dy = creatureB.y - creatureA.y;
+    const length = Math.sqrt(dx * dx + dy * dy) || 1; // avoid division by zero
+    const offsetAmount = 5; // pixels of offset
+    const offsetX = -(dy / length) * offsetAmount;
+    const offsetY = (dx / length) * offsetAmount;
 
-    if (actionA === 'C' && actionB === 'C') {
-      color = 0x00ff00; // Green for mutual cooperation.
-    } else if (actionA === 'D' && actionB === 'D') {
-      color = 0xff0000; // Red for mutual defection.
-    } else {
-      color = 0xffff00; // Yellow for mixed actions.
-    }
+    // Creature A's action line.
+    const colorA = actionA === 'C' ? 0x00ff00 : 0xff0000;
+    const graphicsA = this.add.graphics();
+    graphicsA.lineStyle(4, colorA, 1);
+    graphicsA.beginPath();
+    graphicsA.moveTo(creatureA.x + offsetX, creatureA.y + offsetY);
+    graphicsA.lineTo(creatureB.x + offsetX, creatureB.y + offsetY);
+    graphicsA.strokePath();
 
-    graphics.lineStyle(2, color, 1);
-    graphics.beginPath();
-    graphics.moveTo(creatureA.x, creatureA.y);
-    graphics.lineTo(creatureB.x, creatureB.y);
-    graphics.strokePath();
+    // Creature B's action line.
+    const colorB = actionB === 'C' ? 0x00ff00 : 0xff0000;
+    const graphicsB = this.add.graphics();
+    graphicsB.lineStyle(4, colorB, 1);
+    graphicsB.beginPath();
+    graphicsB.moveTo(creatureB.x - offsetX, creatureB.y - offsetY);
+    graphicsB.lineTo(creatureA.x - offsetX, creatureA.y - offsetY);
+    graphicsB.strokePath();
 
     // Fade out and destroy the graphics after a short duration.
     this.tweens.add({
-      targets: graphics,
+      targets: graphicsA,
       alpha: 0,
       duration: 500,
-      onComplete: () => graphics.destroy(),
+      onComplete: () => graphicsA.destroy(),
     });
+    this.tweens.add({
+      targets: graphicsB,
+      alpha: 0,
+      duration: 500,
+      onComplete: () => graphicsB.destroy(),
+    });
+  }
+
+  // Handles reproduction and death based on resource levels.
+  handleLifeCycle(currentTime: number) {
+    const survivors: Phaser.GameObjects.Arc[] = [];
+    const newCreatures: Phaser.GameObjects.Arc[] = [];
+
+    for (let creature of this.creatures) {
+      const resources = creature.getData('resources');
+
+      // If resources are too low, the creature dies.
+      if (resources <= this.minimumResource) {
+        creature.destroy();
+        continue;
+      }
+
+      // If resources exceed the reproduction threshold, spawn offspring.
+      if (resources >= this.reproductionThreshold) {
+        // Deduct reproduction cost.
+        creature.setData('resources', resources - this.reproductionCost);
+
+        // Determine offspring spawn position (clamped within boundaries).
+        let newX = creature.x + Phaser.Math.Between(-30, 30);
+        let newY = creature.y + Phaser.Math.Between(-30, 30);
+        newX = Phaser.Math.Clamp(
+          newX,
+          20,
+          (this.game.config.width as number) - 20
+        );
+        newY = Phaser.Math.Clamp(
+          newY,
+          20,
+          (this.game.config.height as number) - 20
+        );
+
+        // Create the offspring creature.
+        const offspring = this.add.circle(newX, newY, 20, creature.fillColor);
+        offspring.setData('velocityX', Phaser.Math.Between(-100, 100));
+        offspring.setData('velocityY', Phaser.Math.Between(-100, 100));
+        // Assign a new unique id.
+        offspring.setData('id', Date.now() + Math.random());
+        // Offspring starts with a base resource amount.
+        offspring.setData('resources', 100);
+        // Inherit the parent's strategy.
+        offspring.setData('strategy', creature.getData('strategy'));
+        // Start with an empty memory.
+        offspring.setData('memory', new Map());
+        // Initialize last interaction time to current time to prevent immediate interactions.
+        offspring.setData('lastInteractionTime', currentTime);
+
+        newCreatures.push(offspring);
+      }
+
+      survivors.push(creature);
+    }
+
+    // Update the creatures array with survivors and new offspring.
+    this.creatures = survivors.concat(newCreatures);
+  }
+
+  // Updates the on-screen simulation statistics.
+  updateStats() {
+    const total = this.creatures.length;
+    const strategyCounts: Record<string, number> = {
+      'tit-for-tat': 0,
+      'always cooperate': 0,
+      'always defect': 0,
+      random: 0,
+    };
+    let totalResources = 0;
+    for (let creature of this.creatures) {
+      const strat = creature.getData('strategy');
+      strategyCounts[strat] = (strategyCounts[strat] || 0) + 1;
+      totalResources += creature.getData('resources');
+    }
+    const avgResources = total > 0 ? (totalResources / total).toFixed(1) : 0;
+
+    this.statsText.setText(
+      `Creatures: ${total}\n` +
+        `Tit-for-Tat: ${strategyCounts['tit-for-tat']}\n` +
+        `Always Cooperate: ${strategyCounts['always cooperate']}\n` +
+        `Always Defect: ${strategyCounts['always defect']}\n` +
+        `Random: ${strategyCounts['random']}\n` +
+        `Avg. Resources: ${avgResources}`
+    );
   }
 }
