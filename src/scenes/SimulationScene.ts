@@ -1,17 +1,40 @@
 // SimulationScene.ts
 import Phaser from 'phaser';
 
-const cps_init: number = 5;
+// Simulation constants
+const INITIAL_CREATURES_PER_STRATEGY: number = 5;
+const CREATURE_RADIUS: number = 15;
+const INTERACTION_DISTANCE: number = 200;
+const INTERACTION_COOLDOWN: number = 200;
+const REPRODUCTION_THRESHOLD: number = 200;
+const REPRODUCTION_COST: number = 100;
+const MINIMUM_RESOURCE: number = 0;
+const MAINTENANCE_COST: number = 1;
+const CARRYING_CAPACITY: number = INITIAL_CREATURES_PER_STRATEGY * 7;
+const OVERPOPULATION_FACTOR: number = 0.5;
+const DEATH_RATE_FACTOR: number = 0.0001;
+const FOOD_SPAWN_INTERVAL: number = 2000;
+const FOOD_VALUE: number = 50;
+const ERROR_RATE: number = 0.1; // 10% chance of noise/error
 
-const colorGreen: number = 0x33bb55;
-const colorRed: number = 0xff5555;
-const lineWidtth: number = 2;
+// Visual constants
+const COLOR_GREEN: number = 0x33bb55;
+const COLOR_RED: number = 0xff5555;
+const LINE_WIDTH: number = 2;
 
-// Helper to convert a numeric color to a hex string.
+// Helper to convert a numeric color to a hex string
 const colorToHex = (color: number): string =>
   '#' + color.toString(16).padStart(6, '0');
 
-// Combined strategy info: color, long name, short name, and emoji.
+// Prisoner's Dilemma payoff matrix - R,T,P,S values
+const PAYOFF_MATRIX = {
+  CC: { A: 3, B: 3 }, // Reward for mutual cooperation
+  CD: { A: -2, B: 5 }, // Sucker's payoff and Temptation to defect
+  DC: { A: 5, B: -2 }, // Temptation to defect and Sucker's payoff
+  DD: { A: -1, B: -1 }, // Punishment for mutual defection
+};
+
+// Strategy types from Axelrod's tournament
 export type Strategy =
   | 'always cooperate'
   | 'always defect'
@@ -21,66 +44,80 @@ export type Strategy =
   | 'grim trigger'
   | 'tit-for-two-tats';
 
+// Complete information about each strategy
 const STRATEGY_INFO: Record<
   Strategy,
-  { color: number; longName: string; shortName: string; emoji: string }
+  {
+    color: number;
+    longName: string;
+    shortName: string;
+    emoji: string;
+    description: string;
+  }
 > = {
-  'win-stay-lose-shift': {
-    color: 0xffffff,
-    longName: 'win-stay-lose-shift',
-    shortName: 'WSLS',
-    emoji: '⚪',
-  },
   'tit-for-tat': {
     color: 0x0000ff,
-    longName: 'tit-for-tat',
+    longName: 'Tit-for-Tat',
     shortName: 'TFT',
     emoji: '🔵',
+    description: "Start cooperating, then copy opponent's last move",
   },
   'tit-for-two-tats': {
     color: 0x800080,
-    longName: 'tit-for-two-tats',
+    longName: 'Tit-for-Two-Tats',
     shortName: 'TFTT',
     emoji: '🟣',
+    description: 'Only defect if opponent defects twice in a row',
+  },
+  'win-stay-lose-shift': {
+    color: 0xffffff,
+    longName: 'Win-Stay Lose-Shift',
+    shortName: 'WSLS',
+    emoji: '⚪',
+    description: 'Repeat last move if good outcome, change if bad outcome',
   },
   'always cooperate': {
     color: 0x00ff00,
-    longName: 'always cooperate',
-    shortName: 'AC',
+    longName: 'Always Cooperate',
+    shortName: 'ALLC',
     emoji: '🟢',
+    description: 'Always cooperate no matter what',
   },
   'always defect': {
     color: 0xff0000,
-    longName: 'always defect',
-    shortName: 'AD',
+    longName: 'Always Defect',
+    shortName: 'ALLD',
     emoji: '🔴',
+    description: 'Always defect no matter what',
   },
   'grim trigger': {
     color: 0xffa500,
-    longName: 'grim trigger',
-    shortName: 'GT',
+    longName: 'Grim Trigger',
+    shortName: 'GRIM',
     emoji: '🟠',
+    description: 'Cooperate until opponent defects, then always defect',
   },
   random: {
     color: 0xffff00,
-    longName: 'random',
-    shortName: 'R',
+    longName: 'Random',
+    shortName: 'RAND',
     emoji: '🟡',
+    description: 'Choose randomly between cooperation and defection',
   },
 };
 
-// Define the order in which strategies appear (for reference).
+// Define the order in which strategies appear in stats
 const STRATEGY_ORDER: Strategy[] = [
-  'win-stay-lose-shift',
   'tit-for-tat',
   'tit-for-two-tats',
+  'win-stay-lose-shift',
+  'grim trigger',
   'always cooperate',
   'always defect',
-  'grim trigger',
   'random',
 ];
 
-// Interface for extra data stored on each creature.
+// Interface for creature data
 export interface CreatureData {
   velocityX: number;
   velocityY: number;
@@ -90,40 +127,95 @@ export interface CreatureData {
   memory: Map<number | string, ('C' | 'D')[]>;
   lastInteractionTime: number;
   age: number;
-  lastPartner: number | null;
+  score: number;
+  interactionCount: number;
+  cooperationCount: number;
+  defectionCount: number;
+  lastPartner: number | string | null;
   lastAction?: 'C' | 'D';
   lastPayoff?: number;
   emoji?: string;
+  healthBar?: Phaser.GameObjects.Graphics;
+  label?: Phaser.GameObjects.Text;
 }
 
 export default class SimulationScene extends Phaser.Scene {
-  creatures: Phaser.GameObjects.Arc[] = [];
-  interactionDistance: number = 200;
-  interactionCooldown: number = 200;
+  // Game objects
+  private creatures: Phaser.GameObjects.Container[] = [];
+  private foodGroup!: Phaser.GameObjects.Group;
+  private statsText!: Phaser.GameObjects.Text;
 
-  reproductionThreshold: number = 200;
-  reproductionCost: number = 100;
-  minimumResource: number = 0;
-  maintenanceCost: number = 1;
-  carryingCapacity: number = cps_init * 7;
-  overpopulationFactor: number = 0.5;
-  deathRateFactor: number = 0.0001;
+  // Simulation parameters
+  private interactionDistance: number = INTERACTION_DISTANCE;
+  private interactionCooldown: number = INTERACTION_COOLDOWN;
+  private reproductionThreshold: number = REPRODUCTION_THRESHOLD;
+  private reproductionCost: number = REPRODUCTION_COST;
+  private minimumResource: number = MINIMUM_RESOURCE;
+  private maintenanceCost: number = MAINTENANCE_COST;
+  private carryingCapacity: number = CARRYING_CAPACITY;
+  private overpopulationFactor: number = OVERPOPULATION_FACTOR;
+  private deathRateFactor: number = DEATH_RATE_FACTOR;
+  private foodSpawnInterval: number = FOOD_SPAWN_INTERVAL;
+  private creatureRadius: number = CREATURE_RADIUS;
+  private creaturesPerStrategy: number = INITIAL_CREATURES_PER_STRATEGY;
 
-  foodGroup!: Phaser.GameObjects.Group;
-  foodSpawnInterval: number = 2000;
-  statsText!: Phaser.GameObjects.Text;
-  creatureRadius: number = 10;
-  creaturesPerStrategy: number = cps_init;
+  // Game state
+  private paused: boolean = false;
+  private generationCount: number = 0;
+  private simulationTime: number = 0;
+  private totalInteractions: number = 0;
 
   constructor() {
     super({ key: 'SimulationScene' });
   }
 
   preload(): void {
-    // Preload assets if any.
+    // Preload assets if needed
   }
 
   create(): void {
+    // Create a dark background
+    const width = this.cameras.main.width as number;
+    const height = this.cameras.main.height as number;
+
+    this.add.rectangle(0, 0, width, height, 0x1a1a2e).setOrigin(0, 0);
+
+    // Create grid lines
+    const graphics = this.add.graphics();
+    graphics.lineStyle(1, 0x333366, 0.3);
+
+    // Draw grid lines
+    for (let x = 0; x <= width; x += 50) {
+      graphics.beginPath();
+      graphics.moveTo(x, 0);
+      graphics.lineTo(x, height);
+      graphics.strokePath();
+    }
+
+    for (let y = 0; y <= height; y += 50) {
+      graphics.beginPath();
+      graphics.moveTo(0, y);
+      graphics.lineTo(width, y);
+      graphics.strokePath();
+    }
+
+    // Create UI panel for stats
+    const panel = this.add.graphics();
+    panel.fillStyle(0x000000, 0.7);
+    panel.fillRoundedRect(10, 10, 300, 400, 10);
+    panel.setScrollFactor(0);
+    panel.setDepth(1000);
+
+    // Create stats text
+    this.statsText = this.add.text(20, 20, '', {
+      fontSize: '16px',
+      color: '#ffffff',
+      fontFamily: 'Arial',
+    });
+    this.statsText.setScrollFactor(0);
+    this.statsText.setDepth(1001);
+
+    // Create food system
     this.foodGroup = this.add.group();
     this.time.addEvent({
       delay: this.foodSpawnInterval,
@@ -132,475 +224,795 @@ export default class SimulationScene extends Phaser.Scene {
       loop: true,
     });
 
-    // Create creatures for each strategy.
-    const strategies: Strategy[] = [
-      'tit-for-tat',
-      'always cooperate',
-      'always defect',
-      'random',
-      'win-stay-lose-shift',
-      'grim trigger',
-      'tit-for-two-tats',
-    ];
+    // Create initial creatures
+    this.initializeCreatures();
 
-    let creatureId: number = 0;
-    strategies.forEach((strategy: Strategy) => {
-      for (let i = 0; i < this.creaturesPerStrategy; i++) {
-        const x: number = Phaser.Math.Between(
-          50,
-          (this.game.config.width as number) - 50
-        );
-        const y: number = Phaser.Math.Between(
-          50,
-          (this.game.config.height as number) - 50
-        );
-        // Use combined strategy info to set creature color.
-        const creatureColor: number = STRATEGY_INFO[strategy].color;
+    // Create strategy legend
+    this.createStrategyLegend(width, height);
+  }
 
-        const creature: Phaser.GameObjects.Arc = this.add.circle(
-          x,
-          y,
-          this.creatureRadius,
-          creatureColor
-        );
-        // Initialize creature's data.
-        creature.setData('velocityX', Phaser.Math.Between(-100, 100));
-        creature.setData('velocityY', Phaser.Math.Between(-100, 100));
-        creature.setData('id', creatureId++);
-        creature.setData('resources', 100);
-        creature.setData('strategy', strategy);
-        creature.setData('emoji', STRATEGY_INFO[strategy].emoji);
-        creature.setData('memory', new Map<number | string, ('C' | 'D')[]>());
-        creature.setData('lastInteractionTime', -this.interactionCooldown);
-        creature.setData('age', 0);
-        creature.setData('lastPartner', null);
+  private createStrategyLegend(width: number, height: number): void {
+    const legendY = height - 100;
+    const panel = this.add.graphics();
+    panel.fillStyle(0x000000, 0.7);
+    panel.fillRoundedRect(10, legendY, width - 20, 90, 10);
+    panel.setDepth(1000);
 
-        if (strategy === 'win-stay-lose-shift') {
-          creature.setData('lastAction', 'C');
-          creature.setData('lastPayoff', 3);
+    const title = this.add
+      .text(width / 2, legendY + 10, "AXELROD'S TOURNAMENT STRATEGIES", {
+        fontSize: '18px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5, 0);
+    title.setDepth(1001);
+
+    // Create legend items
+    const strategies = STRATEGY_ORDER;
+    const itemWidth = 200;
+    const itemsPerRow = 3;
+    const startX = 20;
+    const startY = legendY + 40;
+
+    strategies.forEach((strategy, index) => {
+      const row = Math.floor(index / itemsPerRow);
+      const col = index % itemsPerRow;
+      const x = startX + col * itemWidth;
+      const y = startY + row * 30;
+
+      const info = STRATEGY_INFO[strategy];
+
+      // Create circle for color
+      const circle = this.add.circle(x + 10, y + 10, 8, info.color);
+      circle.setDepth(1001);
+
+      // Create text with emoji
+      const text = this.add.text(
+        x + 25,
+        y,
+        `${info.emoji} ${info.longName} (${info.shortName})`,
+        {
+          fontSize: '14px',
+          color: '#ffffff',
         }
-        this.creatures.push(creature);
+      );
+      text.setDepth(1001);
+    });
+  }
+
+  private initializeCreatures(): void {
+    let creatureId: number = 0;
+
+    // Create creatures for each strategy
+    STRATEGY_ORDER.forEach((strategy: Strategy) => {
+      for (let i = 0; i < this.creaturesPerStrategy; i++) {
+        this.createCreature(strategy, creatureId++);
       }
     });
+  }
 
-    // Create the status text (now also serving as the legend) with extra bold style.
-    this.statsText = this.add.text(10, 10, '', {
-      fontSize: '24px',
-      color: '#ffffff',
-      fontStyle: 'bold',
-      // @ts-ignore
-      fontWeight: '900',
-      fontFamily: 'Arial Black',
-    });
-    this.statsText.setScrollFactor(0);
-    this.statsText.setDepth(1000);
+  private createCreature(
+    strategy: Strategy,
+    id: number | string,
+    parentX?: number,
+    parentY?: number
+  ): Phaser.GameObjects.Container {
+    // Determine starting position (random or near parent)
+    const x: number =
+      parentX !== undefined
+        ? Phaser.Math.Clamp(
+            parentX + Phaser.Math.Between(-30, 30),
+            this.creatureRadius,
+            (this.game.config.width as number) - this.creatureRadius
+          )
+        : Phaser.Math.Between(
+            this.creatureRadius,
+            (this.game.config.width as number) - this.creatureRadius
+          );
 
-    // Note: The separate legend is now removed and its info is merged into statsText.
+    const y: number =
+      parentY !== undefined
+        ? Phaser.Math.Clamp(
+            parentY + Phaser.Math.Between(-30, 30),
+            this.creatureRadius,
+            (this.game.config.height as number) - this.creatureRadius
+          )
+        : Phaser.Math.Between(
+            this.creatureRadius,
+            (this.game.config.height as number) - this.creatureRadius
+          );
+
+    // Set creature color based on strategy
+    const color: number = STRATEGY_INFO[strategy].color;
+
+    // Create a container for the creature and its labels
+    const container = this.add.container(x, y);
+
+    // Create the main circle for the creature
+    const creatureCircle = this.add.circle(0, 0, this.creatureRadius, color);
+    creatureCircle.setStrokeStyle(2, 0xffffff, 0.5);
+    container.add(creatureCircle);
+
+    // Add emoji indicator
+    const emoji = this.add
+      .text(0, 0, STRATEGY_INFO[strategy].emoji, {
+        fontSize: '16px',
+        align: 'center',
+      })
+      .setOrigin(0.5, 0.5);
+    container.add(emoji);
+
+    // Add health bar above creature
+    const healthBar = this.add.graphics();
+    healthBar.y = -this.creatureRadius - 10;
+    container.add(healthBar);
+
+    // Add strategy label (initially hidden, shows on hover)
+    const label = this.add
+      .text(0, this.creatureRadius + 10, STRATEGY_INFO[strategy].shortName, {
+        fontSize: '12px',
+        color: '#ffffff',
+        backgroundColor: '#000000aa',
+        padding: { x: 3, y: 2 },
+      })
+      .setOrigin(0.5, 0);
+    label.setVisible(false);
+    container.add(label);
+
+    // Initialize data for the creature
+    const creatureData: CreatureData = {
+      velocityX: Phaser.Math.Between(-80, 80),
+      velocityY: Phaser.Math.Between(-80, 80),
+      id: id,
+      resources: 100,
+      strategy: strategy,
+      memory: new Map<number | string, ('C' | 'D')[]>(),
+      lastInteractionTime: -this.interactionCooldown,
+      age: 0,
+      score: 0,
+      interactionCount: 0,
+      cooperationCount: 0,
+      defectionCount: 0,
+      lastPartner: null,
+      emoji: STRATEGY_INFO[strategy].emoji,
+      healthBar: healthBar,
+      label: label,
+    };
+
+    // Initialize special properties for specific strategies
+    if (strategy === 'win-stay-lose-shift') {
+      creatureData.lastAction = 'C';
+      creatureData.lastPayoff = 3;
+    }
+
+    // Set data on the container
+    container.setData('creatureData', creatureData);
+
+    // Make creature interactive
+    container
+      .setInteractive(
+        new Phaser.Geom.Circle(0, 0, this.creatureRadius),
+        Phaser.Geom.Circle.Contains
+      )
+      .on('pointerover', () => {
+        if (label) label.setVisible(true);
+        creatureCircle.setStrokeStyle(3, 0xffffff, 0.8);
+      })
+      .on('pointerout', () => {
+        if (label) label.setVisible(false);
+        creatureCircle.setStrokeStyle(2, 0xffffff, 0.5);
+      });
+
+    // Add to creatures array
+    this.creatures.push(container);
+
+    // Update health bar display
+    this.updateHealthBar(container);
+
+    return container;
+  }
+
+  private updateHealthBar(creature: Phaser.GameObjects.Container): void {
+    const data = creature.getData('creatureData') as CreatureData;
+    const healthBar = data.healthBar;
+
+    if (healthBar) {
+      healthBar.clear();
+
+      // Calculate health percentage
+      const healthPercent = Math.min(
+        data.resources / this.reproductionThreshold,
+        1
+      );
+      const barWidth = this.creatureRadius * 2;
+
+      // Background
+      healthBar.fillStyle(0x000000, 0.7);
+      healthBar.fillRect(-barWidth / 2, 0, barWidth, 4);
+
+      // Health fill - color based on health level
+      const barColor =
+        healthPercent > 0.6
+          ? 0x00ff00
+          : healthPercent > 0.3
+          ? 0xffff00
+          : 0xff0000;
+      healthBar.fillStyle(barColor, 1);
+      healthBar.fillRect(-barWidth / 2, 0, barWidth * healthPercent, 4);
+    }
   }
 
   update(time: number, delta: number): void {
+    if (this.paused) return;
+
     const deltaSeconds: number = delta / 1000;
-    this.creatures.forEach((creature: Phaser.GameObjects.Arc) => {
-      // Increment age.
-      const currentAge: number =
-        (creature.getData('age') as number) + deltaSeconds;
-      creature.setData('age', currentAge);
+    this.simulationTime += deltaSeconds;
 
-      // Compute death chance based on age.
-      const deathChance: number =
-        this.deathRateFactor * currentAge * deltaSeconds;
-      if (Math.random() < deathChance) {
-        creature.destroy();
-        return;
-      }
-
-      let currentResources: number =
-        (creature.getData('resources') as number) -
-        this.maintenanceCost * deltaSeconds;
-      if (this.creatures.length > this.carryingCapacity) {
-        const extraDrain: number =
-          (this.creatures.length - this.carryingCapacity) *
-          this.overpopulationFactor *
-          deltaSeconds;
-        currentResources -= extraDrain;
-      }
-      creature.setData('resources', currentResources);
-
-      let vx: number = creature.getData('velocityX') as number;
-      let vy: number = creature.getData('velocityY') as number;
-      let newX: number = creature.x + vx * deltaSeconds;
-      let newY: number = creature.y + vy * deltaSeconds;
-      if (
-        newX < this.creatureRadius ||
-        newX > (this.game.config.width as number) - this.creatureRadius
-      ) {
-        vx = -vx;
-        creature.setData('velocityX', vx);
-      }
-      if (
-        newY < this.creatureRadius ||
-        newY > (this.game.config.height as number) - this.creatureRadius
-      ) {
-        vy = -vy;
-        creature.setData('velocityY', vy);
-      }
-      creature.x += vx * deltaSeconds;
-      creature.y += vy * deltaSeconds;
+    // Update each creature
+    this.creatures.forEach((creature: Phaser.GameObjects.Container) => {
+      this.updateCreature(creature, time, deltaSeconds);
     });
+
+    // Filter out destroyed creatures
     this.creatures = this.creatures.filter(
-      (creature: Phaser.GameObjects.Arc) => creature.active
+      (creature: Phaser.GameObjects.Container) => creature.active
     );
 
-    // Handle interactions between creatures.
+    // Handle interactions between creatures
+    this.handleInteractions(time);
+
+    // Handle food consumption
+    this.handleFoodConsumption();
+
+    // Update stats display
+    this.updateStats();
+  }
+
+  private updateCreature(
+    creature: Phaser.GameObjects.Container,
+    time: number,
+    deltaSeconds: number
+  ): void {
+    const data = creature.getData('creatureData') as CreatureData;
+
+    // Increment age
+    data.age += deltaSeconds;
+
+    // Compute death chance based on age
+    const deathChance: number = this.deathRateFactor * data.age * deltaSeconds;
+    if (Math.random() < deathChance) {
+      // Create death effect
+      this.createDeathEffect(
+        creature.x,
+        creature.y,
+        STRATEGY_INFO[data.strategy].color
+      );
+      creature.destroy();
+      return;
+    }
+
+    // Update resources
+    let currentResources: number =
+      data.resources - this.maintenanceCost * deltaSeconds;
+
+    // Apply overpopulation penalty
+    if (this.creatures.length > this.carryingCapacity) {
+      const extraDrain: number =
+        (this.creatures.length - this.carryingCapacity) *
+        this.overpopulationFactor *
+        deltaSeconds;
+      currentResources -= extraDrain;
+    }
+
+    data.resources = currentResources;
+
+    // Check for death by starvation
+    if (data.resources <= this.minimumResource) {
+      creature.destroy();
+      return;
+    }
+
+    // Check for reproduction
+    if (data.resources >= this.reproductionThreshold) {
+      this.reproduce(creature);
+    }
+
+    // Update movement
+    this.updateMovement(creature, deltaSeconds);
+
+    // Update visual health bar
+    this.updateHealthBar(creature);
+  }
+
+  private updateMovement(
+    creature: Phaser.GameObjects.Container,
+    deltaSeconds: number
+  ): void {
+    const data = creature.getData('creatureData') as CreatureData;
+    const width = this.game.config.width as number;
+    const height = this.game.config.height as number;
+
+    // Apply random movement with some inertia
+    if (Math.random() < 0.02) {
+      data.velocityX += Phaser.Math.Between(-20, 20);
+      data.velocityY += Phaser.Math.Between(-20, 20);
+    }
+
+    // Move toward food if nearby
+    this.moveTowardNearestFood(creature);
+
+    // Limit speed to reasonable values
+    const maxSpeed = 120;
+    const speed = Math.sqrt(
+      data.velocityX * data.velocityX + data.velocityY * data.velocityY
+    );
+    if (speed > maxSpeed) {
+      data.velocityX = (data.velocityX / speed) * maxSpeed;
+      data.velocityY = (data.velocityY / speed) * maxSpeed;
+    }
+
+    // Move creature
+    let newX: number = creature.x + data.velocityX * deltaSeconds;
+    let newY: number = creature.y + data.velocityY * deltaSeconds;
+
+    // Bounce off edges
+    if (newX < this.creatureRadius || newX > width - this.creatureRadius) {
+      data.velocityX = -data.velocityX;
+      newX = Phaser.Math.Clamp(
+        newX,
+        this.creatureRadius,
+        width - this.creatureRadius
+      );
+    }
+
+    if (newY < this.creatureRadius || newY > height - this.creatureRadius) {
+      data.velocityY = -data.velocityY;
+      newY = Phaser.Math.Clamp(
+        newY,
+        this.creatureRadius,
+        height - this.creatureRadius
+      );
+    }
+
+    // Update position
+    creature.x = newX;
+    creature.y = newY;
+  }
+
+  private moveTowardNearestFood(creature: Phaser.GameObjects.Container): void {
+    const data = creature.getData('creatureData') as CreatureData;
+
+    // Only move toward food if resources are below a threshold
+    if (data.resources > this.reproductionThreshold * 0.7) return;
+
+    const foodItems = this.foodGroup.getChildren();
+    let nearestFood = null;
+    let nearestDistance = Infinity;
+
+    foodItems.forEach((food) => {
+      const distance = Phaser.Math.Distance.Between(
+        creature.x,
+        creature.y,
+        // @ts-ignore
+        food.x,
+        // @ts-ignore
+        food.y
+      );
+
+      if (distance < 200 && distance < nearestDistance) {
+        nearestFood = food;
+        nearestDistance = distance;
+      }
+    });
+
+    if (nearestFood) {
+      // Apply a small force toward food
+      // @ts-ignore
+      const dx = nearestFood.x - creature.x;
+      // @ts-ignore
+      const dy = nearestFood.y - creature.y;
+      const angle = Math.atan2(dy, dx);
+
+      data.velocityX += Math.cos(angle) * 20;
+      data.velocityY += Math.sin(angle) * 20;
+    }
+  }
+
+  private createDeathEffect(x: number, y: number, color: number): void {
+    // Create simple particle effect for death
+    const particles = [];
+    const particleCount = 8;
+
+    for (let i = 0; i < particleCount; i++) {
+      const angle = (i / particleCount) * Math.PI * 2;
+      const speed = 50;
+      const particle = this.add.circle(x, y, 3, color);
+
+      this.tweens.add({
+        targets: particle,
+        x: x + Math.cos(angle) * 30,
+        y: y + Math.sin(angle) * 30,
+        alpha: 0,
+        scale: 0.1,
+        duration: 800,
+        onComplete: () => particle.destroy(),
+      });
+    }
+  }
+
+  private reproduce(creature: Phaser.GameObjects.Container): void {
+    const data = creature.getData('creatureData') as CreatureData;
+
+    // Deduct reproduction cost
+    data.resources -= this.reproductionCost;
+
+    // Create offspring
+    const offspringId = Date.now() + Math.random();
+    this.createCreature(data.strategy, offspringId, creature.x, creature.y);
+
+    // Increment generation counter
+    this.generationCount++;
+  }
+
+  private handleInteractions(time: number): void {
+    // Check for interactions between all pairs of creatures
     for (let i = 0; i < this.creatures.length; i++) {
       for (let j = i + 1; j < this.creatures.length; j++) {
-        const creatureA: Phaser.GameObjects.Arc = this.creatures[i];
-        const creatureB: Phaser.GameObjects.Arc = this.creatures[j];
-        const lastA: number =
-          (creatureA.getData('lastInteractionTime') as number) || 0;
-        const lastB: number =
-          (creatureB.getData('lastInteractionTime') as number) || 0;
+        const creatureA = this.creatures[i];
+        const creatureB = this.creatures[j];
+
+        const dataA = creatureA.getData('creatureData') as CreatureData;
+        const dataB = creatureB.getData('creatureData') as CreatureData;
+
+        // Skip if either creature is on cooldown
         if (
-          time - lastA < this.interactionCooldown ||
-          time - lastB < this.interactionCooldown
-        )
+          time - dataA.lastInteractionTime < this.interactionCooldown ||
+          time - dataB.lastInteractionTime < this.interactionCooldown
+        ) {
           continue;
-        const distance: number = Phaser.Math.Distance.Between(
+        }
+
+        // Check if creatures are close enough to interact
+        const distance = Phaser.Math.Distance.Between(
           creatureA.x,
           creatureA.y,
           creatureB.x,
           creatureB.y
         );
+
         if (distance < this.interactionDistance) {
           this.handleIPDRound(creatureA, creatureB, time);
+          this.totalInteractions++;
         }
       }
     }
-
-    // Food consumption.
-    const foodItems: Phaser.GameObjects.Arc[] =
-      this.foodGroup.getChildren() as Phaser.GameObjects.Arc[];
-    foodItems.forEach((food: Phaser.GameObjects.Arc) => {
-      this.creatures.forEach((creature: Phaser.GameObjects.Arc) => {
-        const distance: number = Phaser.Math.Distance.Between(
-          creature.x,
-          creature.y,
-          food.x,
-          food.y
-        );
-        if (distance < 25) {
-          const foodValue: number = (food.getData('value') as number) || 50;
-          creature.setData(
-            'resources',
-            (creature.getData('resources') as number) + foodValue
-          );
-          food.destroy();
-        }
-      });
-    });
-
-    this.handleLifeCycle(time);
-
-    if (this.creatures.length > this.carryingCapacity) {
-      const sortedCreatures: Phaser.GameObjects.Arc[] = this.creatures
-        .slice()
-        .sort(
-          (a, b) =>
-            (a.getData('resources') as number) -
-            (b.getData('resources') as number)
-        );
-      const numToRemove: number = this.creatures.length - this.carryingCapacity;
-      for (let i = 0; i < numToRemove; i++) sortedCreatures[i].destroy();
-      this.creatures = this.creatures.filter(
-        (creature: Phaser.GameObjects.Arc) => creature.active
-      );
-    }
-    this.updateStats();
   }
 
-  spawnFood(): void {
-    const x: number = Phaser.Math.Between(
-      20,
-      (this.game.config.width as number) - 20
-    );
-    const y: number = Phaser.Math.Between(
-      20,
-      (this.game.config.height as number) - 20
-    );
-    const food: Phaser.GameObjects.Arc = this.add.circle(x, y, 10, 0xffffff);
-    food.setData('value', 50);
-    this.foodGroup.add(food);
-    this.tweens.add({
-      targets: food,
-      alpha: 0,
-      duration: 10000,
-      onComplete: () => food.destroy(),
-    });
-  }
-
-  handleIPDRound(
-    creatureA: Phaser.GameObjects.Arc,
-    creatureB: Phaser.GameObjects.Arc,
+  private handleIPDRound(
+    creatureA: Phaser.GameObjects.Container,
+    creatureB: Phaser.GameObjects.Container,
     time: number
   ): void {
+    const dataA = creatureA.getData('creatureData') as CreatureData;
+    const dataB = creatureB.getData('creatureData') as CreatureData;
+
+    // Get actions from both creatures based on their strategies
     const actionA: 'C' | 'D' = this.getAction(creatureA, creatureB);
     const actionB: 'C' | 'D' = this.getAction(creatureB, creatureA);
-    let payoffA: number = 0,
-      payoffB: number = 0;
+
+    // Calculate payoffs based on actions
+    let payoffA: number = 0;
+    let payoffB: number = 0;
+
     if (actionA === 'C' && actionB === 'C') {
-      payoffA = 3;
-      payoffB = 3;
+      // Both cooperate
+      payoffA = PAYOFF_MATRIX.CC.A;
+      payoffB = PAYOFF_MATRIX.CC.B;
     } else if (actionA === 'C' && actionB === 'D') {
-      payoffA = -2;
-      payoffB = 5;
+      // A cooperates, B defects
+      payoffA = PAYOFF_MATRIX.CD.A;
+      payoffB = PAYOFF_MATRIX.CD.B;
     } else if (actionA === 'D' && actionB === 'C') {
-      payoffA = 5;
-      payoffB = -2;
+      // A defects, B cooperates
+      payoffA = PAYOFF_MATRIX.DC.A;
+      payoffB = PAYOFF_MATRIX.DC.B;
     } else if (actionA === 'D' && actionB === 'D') {
-      payoffA = -1;
-      payoffB = -1;
+      // Both defect
+      payoffA = PAYOFF_MATRIX.DD.A;
+      payoffB = PAYOFF_MATRIX.DD.B;
     }
-    creatureA.setData(
-      'resources',
-      (creatureA.getData('resources') as number) + payoffA
-    );
-    creatureB.setData(
-      'resources',
-      (creatureB.getData('resources') as number) + payoffB
-    );
+
+    // Update resources and scores
+    dataA.resources += payoffA;
+    dataB.resources += payoffB;
+    dataA.score += payoffA;
+    dataB.score += payoffB;
+
+    // Update interaction counts
+    dataA.interactionCount++;
+    dataB.interactionCount++;
+
+    // Update cooperation counts
+    if (actionA === 'C') dataA.cooperationCount++;
+    if (actionB === 'C') dataB.cooperationCount++;
+
+    // Update memories (what each knows about the other)
     this.updateMemory(creatureA, creatureB, actionB);
     this.updateMemory(creatureB, creatureA, actionA);
-    if (creatureA.getData('strategy') === 'win-stay-lose-shift') {
-      creatureA.setData('lastAction', actionA);
-      creatureA.setData('lastPayoff', payoffA);
+
+    // Update last action and payoff for win-stay-lose-shift strategy
+    if (dataA.strategy === 'win-stay-lose-shift') {
+      dataA.lastAction = actionA;
+      dataA.lastPayoff = payoffA;
     }
-    if (creatureB.getData('strategy') === 'win-stay-lose-shift') {
-      creatureB.setData('lastAction', actionB);
-      creatureB.setData('lastPayoff', payoffB);
+
+    if (dataB.strategy === 'win-stay-lose-shift') {
+      dataB.lastAction = actionB;
+      dataB.lastPayoff = payoffB;
     }
-    creatureA.setData('lastInteractionTime', time);
-    creatureB.setData('lastInteractionTime', time);
-    creatureA.setData('lastPartner', creatureB.getData('id'));
-    creatureB.setData('lastPartner', creatureA.getData('id'));
+
+    // Record interaction time and partner
+    dataA.lastInteractionTime = time;
+    dataB.lastInteractionTime = time;
+    dataA.lastPartner = dataB.id;
+    dataB.lastPartner = dataA.id;
+
+    // Create visual effects for the interaction
     this.createInteractionEffect(creatureA, creatureB, actionA, actionB);
-    console.log(
-      `Creature ${creatureA.getData('id')} (${creatureA.getData(
-        'strategy'
-      )}) chose ${actionA} vs. Creature ${creatureB.getData(
-        'id'
-      )} (${creatureB.getData(
-        'strategy'
-      )}) chose ${actionB} => Resources: ${creatureA.getData(
-        'resources'
-      )}, ${creatureB.getData('resources')}`
-    );
   }
 
-  // Returns the action for a creature with a 10% chance to reverse its intended move.
-  getAction(
-    creature: Phaser.GameObjects.Arc,
-    opponent: Phaser.GameObjects.Arc
+  private getAction(
+    creature: Phaser.GameObjects.Container,
+    opponent: Phaser.GameObjects.Container
   ): 'C' | 'D' {
-    const strategy: Strategy = creature.getData('strategy') as Strategy;
-    const memory = creature.getData('memory') as Map<
-      number | string,
-      ('C' | 'D')[]
-    >;
-    const pastMoves: ('C' | 'D')[] = memory.get(opponent.getData('id')) || [];
-    let action: 'C' | 'D' = 'C';
+    const data = creature.getData('creatureData') as CreatureData;
+    const strategy: Strategy = data.strategy;
+    const memory = data.memory as Map<number | string, ('C' | 'D')[]>;
+    const opponentId = (opponent.getData('creatureData') as CreatureData).id;
+    const pastMoves: ('C' | 'D')[] = memory.get(opponentId) || [];
 
+    let action: 'C' | 'D' = 'C'; // Default to cooperation
+
+    // Determine action based on strategy
     switch (strategy) {
       case 'always cooperate':
         action = 'C';
         break;
+
       case 'always defect':
         action = 'D';
         break;
+
       case 'tit-for-tat':
+        // Start with cooperation, then mirror opponent's last move
         action = pastMoves.length > 0 ? pastMoves[pastMoves.length - 1] : 'C';
         break;
+
       case 'random':
-        action = Phaser.Math.Between(0, 1) === 0 ? 'C' : 'D';
+        // Choose randomly between cooperation and defection
+        action = Math.random() < 0.5 ? 'C' : 'D';
         break;
-      case 'win-stay-lose-shift': {
-        const lastAction: 'C' | 'D' =
-          (creature.getData('lastAction') as 'C' | 'D') || 'C';
+
+      case 'win-stay-lose-shift':
+        // Also known as Pavlov in some implementations
+        const lastAction: 'C' | 'D' = data.lastAction || 'C';
         const lastPayoff: number =
-          (creature.getData('lastPayoff') as number) ?? 3;
+          data.lastPayoff !== undefined ? data.lastPayoff : 3;
+
+        // If last payoff was positive, repeat last action; otherwise, switch
         action = lastPayoff > 0 ? lastAction : lastAction === 'C' ? 'D' : 'C';
         break;
-      }
+
       case 'grim trigger':
+        // Cooperate until opponent defects, then always defect
         action = pastMoves.includes('D') ? 'D' : 'C';
         break;
+
       case 'tit-for-two-tats':
+        // Only defect if opponent defected twice in a row
         action =
           pastMoves.length >= 2 &&
-          pastMoves.slice(-2).every((move) => move === 'D')
+          pastMoves[pastMoves.length - 1] === 'D' &&
+          pastMoves[pastMoves.length - 2] === 'D'
             ? 'D'
             : 'C';
         break;
+
       default:
-        action = 'C';
+        action = 'C'; // Default to cooperation for unknown strategies
     }
 
-    // Apply a 10% chance to accidentally reverse the intended action.
-    if (Math.random() < 0.1) {
+    // Apply noise - chance of making a mistake (crucial for evolutionary stability)
+    if (Math.random() < ERROR_RATE) {
       action = action === 'C' ? 'D' : 'C';
     }
+
     return action;
   }
 
-  updateMemory(
-    creature: Phaser.GameObjects.Arc,
-    opponent: Phaser.GameObjects.Arc,
+  private updateMemory(
+    creature: Phaser.GameObjects.Container,
+    opponent: Phaser.GameObjects.Container,
     opponentAction: 'C' | 'D'
   ): void {
-    const memory = creature.getData('memory') as Map<
-      number | string,
-      ('C' | 'D')[]
-    >;
-    const opponentId = opponent.getData('id');
+    const data = creature.getData('creatureData') as CreatureData;
+    const memory = data.memory as Map<number | string, ('C' | 'D')[]>;
+    const opponentId = (opponent.getData('creatureData') as CreatureData).id;
+
+    // Get existing history or create new one
     let history = memory.get(opponentId);
     if (!history) {
       history = [];
       memory.set(opponentId, history);
     }
+
+    // Add this move to history
     history.push(opponentAction);
+
+    // Limit memory to last 10 interactions to prevent unlimited growth
+    if (history.length > 10) {
+      history.shift();
+    }
   }
 
-  createInteractionEffect(
-    creatureA: Phaser.GameObjects.Arc,
-    creatureB: Phaser.GameObjects.Arc,
+  private createInteractionEffect(
+    creatureA: Phaser.GameObjects.Container,
+    creatureB: Phaser.GameObjects.Container,
     actionA: 'C' | 'D',
     actionB: 'C' | 'D'
   ): void {
+    // Calculate vector between creatures
     const dx: number = creatureB.x - creatureA.x;
     const dy: number = creatureB.y - creatureA.y;
     const length: number = Math.sqrt(dx * dx + dy * dy) || 1;
-    const offsetAmount: number = 2;
+
+    // Create offset for parallel lines
+    const offsetAmount: number = 3;
     const offsetX: number = -(dy / length) * offsetAmount;
     const offsetY: number = (dx / length) * offsetAmount;
+
+    // Draw line for A's action
     const graphicsA: Phaser.GameObjects.Graphics = this.add.graphics();
-    graphicsA.lineStyle(
-      lineWidtth / 2,
-      actionA === 'C' ? colorGreen : colorRed,
-      1
-    );
+    const colorA = actionA === 'C' ? COLOR_GREEN : COLOR_RED;
+    graphicsA.lineStyle(LINE_WIDTH, colorA, 1);
     graphicsA.beginPath();
     graphicsA.moveTo(creatureA.x + offsetX, creatureA.y + offsetY);
     graphicsA.lineTo(creatureB.x + offsetX, creatureB.y + offsetY);
     graphicsA.strokePath();
+
+    // Draw line for B's action
     const graphicsB: Phaser.GameObjects.Graphics = this.add.graphics();
-    graphicsB.lineStyle(
-      lineWidtth / 2,
-      actionB === 'C' ? colorGreen : colorRed,
-      1
-    );
+    const colorB = actionB === 'C' ? COLOR_GREEN : COLOR_RED;
+    graphicsB.lineStyle(LINE_WIDTH, colorB, 1);
     graphicsB.beginPath();
     graphicsB.moveTo(creatureB.x - offsetX, creatureB.y - offsetY);
     graphicsB.lineTo(creatureA.x - offsetX, creatureA.y - offsetY);
     graphicsB.strokePath();
+
+    // Fade out interaction lines
     this.tweens.add({
-      targets: graphicsA,
+      targets: [graphicsA, graphicsB],
       alpha: 0,
-      duration: 500,
-      onComplete: () => graphicsA.destroy(),
-    });
-    this.tweens.add({
-      targets: graphicsB,
-      alpha: 0,
-      duration: 500,
-      onComplete: () => graphicsB.destroy(),
+      duration: 800,
+      onComplete: () => {
+        graphicsA.destroy();
+        graphicsB.destroy();
+      },
     });
   }
 
-  handleLifeCycle(currentTime: number): void {
-    const survivors: Phaser.GameObjects.Arc[] = [];
-    const newCreatures: Phaser.GameObjects.Arc[] = [];
-    this.creatures.forEach((creature: Phaser.GameObjects.Arc) => {
-      const resources: number = creature.getData('resources') as number;
-      if (resources <= this.minimumResource) {
-        creature.destroy();
-        return;
-      }
-      if (resources >= this.reproductionThreshold) {
-        creature.setData('resources', resources - this.reproductionCost);
-        const newX: number = Phaser.Math.Clamp(
-          creature.x + Phaser.Math.Between(-30, 30),
-          this.creatureRadius,
-          (this.game.config.width as number) - this.creatureRadius
+  private handleFoodConsumption(): void {
+    const foodItems = this.foodGroup.getChildren() as Phaser.GameObjects.Arc[];
+
+    foodItems.forEach((food: Phaser.GameObjects.Arc) => {
+      this.creatures.forEach((creature: Phaser.GameObjects.Container) => {
+        const distance = Phaser.Math.Distance.Between(
+          creature.x,
+          creature.y,
+          food.x,
+          food.y
         );
-        const newY: number = Phaser.Math.Clamp(
-          creature.y + Phaser.Math.Between(-30, 30),
-          this.creatureRadius,
-          (this.game.config.height as number) - this.creatureRadius
-        );
-        const offspring: Phaser.GameObjects.Arc = this.add.circle(
-          newX,
-          newY,
-          this.creatureRadius,
-          creature.fillColor // Offspring inherit the parent's color.
-        );
-        offspring.setData('velocityX', Phaser.Math.Between(-100, 100));
-        offspring.setData('velocityY', Phaser.Math.Between(-100, 100));
-        offspring.setData('id', Date.now() + Math.random());
-        offspring.setData('resources', 100);
-        offspring.setData('strategy', creature.getData('strategy'));
-        offspring.setData('emoji', creature.getData('emoji'));
-        offspring.setData('memory', new Map<number | string, ('C' | 'D')[]>());
-        offspring.setData('lastInteractionTime', currentTime);
-        offspring.setData('age', 0);
-        offspring.setData('lastPartner', null);
-        if (creature.getData('strategy') === 'win-stay-lose-shift') {
-          offspring.setData('lastAction', 'C');
-          offspring.setData('lastPayoff', 3);
+
+        // If creature is close enough to food, consume it
+        if (distance < this.creatureRadius + 15) {
+          const foodValue = (food.getData('value') as number) || FOOD_VALUE;
+          const data = creature.getData('creatureData') as CreatureData;
+
+          // Add food value to creature's resources
+          data.resources += foodValue;
+
+          // Remove the food
+          food.destroy();
         }
-        newCreatures.push(offspring);
-      }
-      survivors.push(creature);
+      });
     });
-    this.creatures = survivors.concat(newCreatures);
   }
 
-  updateStats(): void {
-    const total: number = this.creatures.length;
-    const strategyCounts: Record<Strategy, number> = {
-      'tit-for-tat': 0,
-      'always cooperate': 0,
-      'always defect': 0,
-      random: 0,
-      'win-stay-lose-shift': 0,
-      'grim trigger': 0,
-      'tit-for-two-tats': 0,
-    };
-    let totalResources: number = 0;
-    let totalAge: number = 0;
-    this.creatures.forEach((creature: Phaser.GameObjects.Arc) => {
-      const strat = creature.getData('strategy') as Strategy;
-      strategyCounts[strat] = (strategyCounts[strat] || 0) + 1;
-      totalResources += creature.getData('resources') as number;
-      totalAge += creature.getData('age') as number;
-    });
-    const avgResources: string =
-      total > 0 ? (totalResources / total).toFixed(1) : '0';
-    const avgAge: string = total > 0 ? (totalAge / total).toFixed(1) : '0';
-    const foodCount: number = this.foodGroup.getLength();
+  private spawnFood(): void {
+    const width = this.game.config.width as number;
+    const height = this.game.config.height as number;
 
-    // Build the stats text: include the emoji, color hex, long and short names.
-    const statsLines: string[] = [];
-    statsLines.push(`Creatures: ${total} (Max: ${this.carryingCapacity})`);
+    // Random position
+    const x = Phaser.Math.Between(20, width - 20);
+    const y = Phaser.Math.Between(20, height - 20);
+
+    // Create food with slight size variation
+    const size = Phaser.Math.Between(8, 12);
+    const food = this.add.circle(x, y, size, 0xffffff);
+
+    // Set food data
+    food.setData('value', FOOD_VALUE);
+
+    // Add to food group
+    this.foodGroup.add(food);
+
+    // Destroy automatically after 15 seconds if not consumed
+    this.time.delayedCall(15000, () => {
+      if (food.active) {
+        food.destroy();
+      }
+    });
+  }
+
+  private updateStats(): void {
+    const total = this.creatures.length;
+
+    // Count creatures by strategy
+    const strategyCounts: Record<Strategy, number> = {} as Record<
+      Strategy,
+      number
+    >;
     STRATEGY_ORDER.forEach((strategy) => {
+      strategyCounts[strategy] = 0;
+    });
+
+    // Calculate totals and averages
+    let totalResources = 0;
+    let totalAge = 0;
+    let totalScore = 0;
+
+    this.creatures.forEach((creature) => {
+      const data = creature.getData('creatureData') as CreatureData;
+      const strategy = data.strategy;
+
+      strategyCounts[strategy] = (strategyCounts[strategy] || 0) + 1;
+      totalResources += data.resources;
+      totalAge += data.age;
+      totalScore += data.score;
+    });
+
+    const avgResources = total > 0 ? (totalResources / total).toFixed(1) : '0';
+    const avgAge = total > 0 ? (totalAge / total).toFixed(1) : '0';
+    const avgScore = total > 0 ? (totalScore / total).toFixed(1) : '0';
+    const foodCount = this.foodGroup.getLength();
+
+    // Build stats display
+    const statsLines: string[] = [];
+    statsLines.push(`**SIMULATION STATS**`);
+    statsLines.push(`Generation: ${this.generationCount}`);
+    statsLines.push(`Time: ${this.simulationTime.toFixed(0)}s`);
+    statsLines.push(`Creatures: ${total}/${this.carryingCapacity}`);
+    statsLines.push(`Interactions: ${this.totalInteractions}`);
+    statsLines.push(`Food Available: ${foodCount}`);
+    statsLines.push(`\n**POPULATION**`);
+
+    // Show strategy counts
+    const activeStrategies = STRATEGY_ORDER.filter(
+      (strategy) => strategyCounts[strategy] > 0
+    );
+    activeStrategies.forEach((strategy) => {
       const info = STRATEGY_INFO[strategy];
+      const count = strategyCounts[strategy];
+      const percent = total > 0 ? ((count / total) * 100).toFixed(1) : '0';
       statsLines.push(
-        `${info.emoji} ${colorToHex(info.color)} - ${info.longName} (${
-          info.shortName
-        }): ${strategyCounts[strategy]}`
+        `${info.emoji} ${info.shortName}: ${count} (${percent}%)`
       );
     });
-    statsLines.push(`Avg. Resources: ${avgResources}`);
-    statsLines.push(`Avg. Age: ${avgAge}s`);
-    statsLines.push(`Food Items: ${foodCount}`);
+
+    statsLines.push(`\n**AVERAGES**`);
+    statsLines.push(`Resources: ${avgResources}`);
+    statsLines.push(`Age: ${avgAge}s`);
+    statsLines.push(`Score: ${avgScore}`);
 
     this.statsText.setText(statsLines.join('\n'));
   }
