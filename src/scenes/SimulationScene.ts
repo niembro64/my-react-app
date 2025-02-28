@@ -9,10 +9,10 @@ const INTERACTION_COOLDOWN: number = 200;
 const REPRODUCTION_THRESHOLD: number = 200;
 const REPRODUCTION_COST: number = 100;
 const MINIMUM_RESOURCE: number = 0;
-const MAINTENANCE_COST: number = 1;
+const MAINTENANCE_COST: number = 5;
 const CARRYING_CAPACITY: number = INITIAL_CREATURES_PER_STRATEGY * 7;
 const OVERPOPULATION_FACTOR: number = 0.5;
-const DEATH_RATE_FACTOR: number = 0.0001;
+const DEATH_RATE_FACTOR: number = 0;
 const FOOD_SPAWN_INTERVAL: number = 2000;
 const FOOD_VALUE: number = 50;
 const ERROR_RATE: number = 0.1; // 10% chance of noise/error
@@ -48,7 +48,7 @@ export type Strategy =
 const STRATEGY_INFO: Record<
   Strategy,
   {
-    color: number;
+    // color: number;
     longName: string;
     shortName: string;
     emoji: string;
@@ -56,49 +56,49 @@ const STRATEGY_INFO: Record<
   }
 > = {
   'tit-for-tat': {
-    color: 0x0000ff,
+    // color: 0x0000ff,
     longName: 'Tit-for-Tat',
     shortName: 'TFT',
     emoji: '🔵',
     description: "Start cooperating, then copy opponent's last move",
   },
   'tit-for-two-tats': {
-    color: 0x800080,
+    // color: 0x800080,
     longName: 'Tit-for-Two-Tats',
     shortName: 'TFTT',
     emoji: '🟣',
     description: 'Only defect if opponent defects twice in a row',
   },
   'win-stay-lose-shift': {
-    color: 0xffffff,
+    // color: 0xffffff,
     longName: 'Win-Stay Lose-Shift',
     shortName: 'WSLS',
     emoji: '⚪',
     description: 'Repeat last move if good outcome, change if bad outcome',
   },
   'always cooperate': {
-    color: 0x00ff00,
+    // color: 0x00ff00,
     longName: 'Always Cooperate',
     shortName: 'ALLC',
     emoji: '🟢',
     description: 'Always cooperate no matter what',
   },
   'always defect': {
-    color: 0xff0000,
+    // color: 0xff0000,
     longName: 'Always Defect',
     shortName: 'ALLD',
     emoji: '🔴',
     description: 'Always defect no matter what',
   },
   'grim trigger': {
-    color: 0xffa500,
+    // color: 0xffa500,
     longName: 'Grim Trigger',
     shortName: 'GRIM',
     emoji: '🟠',
     description: 'Cooperate until opponent defects, then always defect',
   },
   random: {
-    color: 0xffff00,
+    // color: 0xffff00,
     longName: 'Random',
     shortName: 'RAND',
     emoji: '🟡',
@@ -263,19 +263,14 @@ export default class SimulationScene extends Phaser.Scene {
       const info = STRATEGY_INFO[strategy];
 
       // Create circle for color
-      const circle = this.add.circle(x + 10, y + 10, 8, info.color);
-      circle.setDepth(1001);
+      // const circle = this.add.circle(x + 10, y + 10, 8, info.color);
+      // circle.setDepth(1001);
 
       // Create text with emoji
-      const text = this.add.text(
-        x + 25,
-        y,
-        `${info.emoji} ${info.longName} (${info.shortName})`,
-        {
-          fontSize: '14px',
-          color: '#ffffff',
-        }
-      );
+      const text = this.add.text(x + 25, y, `${info.emoji} ${info.longName}`, {
+        fontSize: '14px',
+        color: '#ffffff',
+      });
       text.setDepth(1001);
     });
   }
@@ -323,20 +318,21 @@ export default class SimulationScene extends Phaser.Scene {
           );
 
     // Set creature color based on strategy
-    const color: number = STRATEGY_INFO[strategy].color;
+    // const color: number = STRATEGY_INFO[strategy].color;
 
     // Create a container for the creature and its labels
     const container = this.add.container(x, y);
 
     // Create the main circle for the creature
-    const creatureCircle = this.add.circle(0, 0, this.creatureRadius, color);
-    creatureCircle.setStrokeStyle(2, 0xffffff, 0.5);
-    container.add(creatureCircle);
+    // const creatureCircle = this.add.circle(0, 0, this.creatureRadius, color);
+    // creatureCircle.setStrokeStyle(2, 0xffffff, 0.5);
+    // container.add(creatureCircle);
 
     // Add emoji indicator
     const emoji = this.add
       .text(0, 0, STRATEGY_INFO[strategy].emoji, {
-        fontSize: '16px',
+        fontSize: '50px',
+        // lineSpacing: -10,
         align: 'center',
       })
       .setOrigin(0.5, 0.5);
@@ -396,11 +392,11 @@ export default class SimulationScene extends Phaser.Scene {
       )
       .on('pointerover', () => {
         if (label) label.setVisible(true);
-        creatureCircle.setStrokeStyle(3, 0xffffff, 0.8);
+        // creatureCircle.setStrokeStyle(3, 0xffffff, 0.8);
       })
       .on('pointerout', () => {
         if (label) label.setVisible(false);
-        creatureCircle.setStrokeStyle(2, 0xffffff, 0.5);
+        // creatureCircle.setStrokeStyle(2, 0xffffff, 0.5);
       });
 
     // Add to creatures array
@@ -482,11 +478,7 @@ export default class SimulationScene extends Phaser.Scene {
     const deathChance: number = this.deathRateFactor * data.age * deltaSeconds;
     if (Math.random() < deathChance) {
       // Create death effect
-      this.createDeathEffect(
-        creature.x,
-        creature.y,
-        STRATEGY_INFO[data.strategy].color
-      );
+      this.createDeathEffect(creature.x, creature.y, 0xffffff);
       creature.destroy();
       return;
     }
