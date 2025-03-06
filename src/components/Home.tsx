@@ -13,17 +13,16 @@ type SliderObject = {
 // Simulation constants - these can be modified through the Setup scene
 const DEFAULT_CONFIG = {
   INITIAL_CREATURES_PER_STRATEGY: 10,
-  CREATURE_RADIUS: 15,
+  CREATURE_RADIUS: 20,
   INTERACTION_DISTANCE: 200,
   INTERACTION_COOLDOWN: 200,
   REPRODUCTION_THRESHOLD: 200,
   REPRODUCTION_COST: 100,
   MINIMUM_RESOURCE: 0,
   MAINTENANCE_COST: 5,
-  CARRYING_CAPACITY: 100, // INITIAL_CREATURES_PER_STRATEGY * 7,
-  OVERPOPULATION_FACTOR: 0.5,
-  DEATH_RATE_FACTOR: 0,
-  FOOD_SPAWN_INTERVAL: 1000,
+  CARRYING_CAPACITY: 0, // INITIAL_CREATURES_PER_STRATEGY * 7,
+  OVERPOPULATION_FACTOR: 10, // 0.5,
+  FOOD_SPAWN_INTERVAL: 100,
   FOOD_VALUE: 50,
   ERROR_RATE_INTERACTION: 0, // 5% chance of noise/error when interacting
   ERROR_RATE_MEMORY: 0, // 5% chance of noise/error when storing a memory
@@ -157,7 +156,6 @@ interface SimulationConfig {
   MAINTENANCE_COST: number;
   CARRYING_CAPACITY: number;
   OVERPOPULATION_FACTOR: number;
-  DEATH_RATE_FACTOR: number;
   FOOD_SPAWN_INTERVAL: number;
   FOOD_VALUE: number;
   ERROR_RATE_INTERACTION: number;
@@ -531,10 +529,8 @@ class SetupScene extends Phaser.Scene {
     const enabledStrategyCount = Object.values(
       this.config.enabledStrategies
     ).filter(Boolean).length;
-    this.config.CARRYING_CAPACITY = Math.max(
-      this.config.CARRYING_CAPACITY,
-      this.config.INITIAL_CREATURES_PER_STRATEGY * enabledStrategyCount * 1.5
-    );
+    this.config.CARRYING_CAPACITY =
+      this.config.INITIAL_CREATURES_PER_STRATEGY * enabledStrategyCount * 2;
 
     // Start simulation scene
     this.scene.start('SimulationScene', this.config);
@@ -559,7 +555,6 @@ class SimulationScene extends Phaser.Scene {
   private maintenanceCost: number = DEFAULT_CONFIG.MAINTENANCE_COST;
   private carryingCapacity: number = DEFAULT_CONFIG.CARRYING_CAPACITY;
   private overpopulationFactor: number = DEFAULT_CONFIG.OVERPOPULATION_FACTOR;
-  private deathRateFactor: number = DEFAULT_CONFIG.DEATH_RATE_FACTOR;
   private foodSpawnInterval: number = DEFAULT_CONFIG.FOOD_SPAWN_INTERVAL;
   private creatureRadius: number = DEFAULT_CONFIG.CREATURE_RADIUS;
   private creaturesPerStrategy: number =
@@ -591,7 +586,6 @@ class SimulationScene extends Phaser.Scene {
     this.maintenanceCost = data.MAINTENANCE_COST;
     this.carryingCapacity = data.CARRYING_CAPACITY;
     this.overpopulationFactor = data.OVERPOPULATION_FACTOR;
-    this.deathRateFactor = data.DEATH_RATE_FACTOR;
     this.foodSpawnInterval = data.FOOD_SPAWN_INTERVAL;
     this.creatureRadius = data.CREATURE_RADIUS;
     this.creaturesPerStrategy = data.INITIAL_CREATURES_PER_STRATEGY;
@@ -934,15 +928,6 @@ class SimulationScene extends Phaser.Scene {
 
     // Increment age
     data.age += deltaSeconds;
-
-    // Compute death chance based on age
-    const deathChance: number = this.deathRateFactor * data.age * deltaSeconds;
-    if (Math.random() < deathChance) {
-      // Create death effect
-      this.createDeathEffect(creature.x, creature.y, 0xffffff);
-      creature.destroy();
-      return;
-    }
 
     // Update resources
     let currentResources: number =
