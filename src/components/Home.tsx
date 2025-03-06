@@ -33,7 +33,7 @@ const COLOR_GREEN: number = 0xffffff;
 const COLOR_RED: number = 0x000000;
 // const COLOR_GREEN: number = 0x33bb55;
 // const COLOR_RED: number = 0xff5555;
-const LINE_WIDTH: number = 2;
+const LINE_WIDTH: number = 4;
 
 // Helper to convert a numeric color to a hex string
 const colorToHex = (color: number): string =>
