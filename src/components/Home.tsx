@@ -1517,8 +1517,6 @@ const Home: React.FC = () => {
   useEffect(() => {
     const config: Phaser.Types.Core.GameConfig = {
       type: Phaser.AUTO,
-      // width: 800,
-      // height: 600,\
       width: window.innerWidth * (1 - borderAmount),
       height: window.innerHeight - window.innerWidth * borderAmount,
       parent: gameRef.current!,
