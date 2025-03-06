@@ -23,14 +23,16 @@ const DEFAULT_CONFIG = {
   CARRYING_CAPACITY: 0, // INITIAL_CREATURES_PER_STRATEGY * 7,
   OVERPOPULATION_FACTOR: 10, // 0.5,
   FOOD_SPAWN_INTERVAL: 100,
-  FOOD_VALUE: 50,
+  FOOD_VALUE: 10,
   ERROR_RATE_INTERACTION: 0, // 5% chance of noise/error when interacting
   ERROR_RATE_MEMORY: 0, // 5% chance of noise/error when storing a memory
 };
 
 // Visual constants
-const COLOR_GREEN: number = 0x33bb55;
-const COLOR_RED: number = 0xff5555;
+const COLOR_GREEN: number = 0xffffff;
+const COLOR_RED: number = 0x000000;
+// const COLOR_GREEN: number = 0x33bb55;
+// const COLOR_RED: number = 0xff5555;
 const LINE_WIDTH: number = 2;
 
 // Helper to convert a numeric color to a hex string
