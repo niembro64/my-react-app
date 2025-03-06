@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 
 // Simulation constants
-const INITIAL_CREATURES_PER_STRATEGY: number = 5;
+const INITIAL_CREATURES_PER_STRATEGY: number = 50;
 const CREATURE_RADIUS: number = 15;
 const INTERACTION_DISTANCE: number = 200;
 const INTERACTION_COOLDOWN: number = 200;
@@ -15,7 +15,8 @@ const OVERPOPULATION_FACTOR: number = 0.5;
 const DEATH_RATE_FACTOR: number = 0;
 const FOOD_SPAWN_INTERVAL: number = 2000;
 const FOOD_VALUE: number = 50;
-const ERROR_RATE: number = 0.1; // 10% chance of noise/error
+const ERROR_RATE_INTERACTION: number = 0.05; // 10% chance of noise/error when interacting
+const ERROR_RATE_MEMORY: number = 0.05; // 10% chance of noise/error when storing a memory
 
 // Visual constants
 const COLOR_GREEN: number = 0x33bb55;
@@ -524,13 +525,25 @@ export default class SimulationScene extends Phaser.Scene {
     const width = this.game.config.width as number;
     const height = this.game.config.height as number;
 
-    // Apply random movement with some inertia
-    if (Math.random() < 0.02) {
-      data.velocityX += Phaser.Math.Between(-20, 20);
-      data.velocityY += Phaser.Math.Between(-20, 20);
+    // Apply random movement with inertia
+    // More frequent random changes (5% chance per frame)
+    if (Math.random() < 0.05) {
+      // Add stronger random acceleration
+      data.velocityX += Phaser.Math.Between(-40, 40);
+      data.velocityY += Phaser.Math.Between(-40, 40);
+
+      // Occasionally make more dramatic direction changes (1% chance)
+      if (Math.random() < 0.01) {
+        data.velocityX = Phaser.Math.Between(-100, 100);
+        data.velocityY = Phaser.Math.Between(-100, 100);
+      }
     }
 
-    // Move toward food if nearby
+    // Add slight random jitter to make movement less predictable
+    data.velocityX += (Math.random() - 0.5) * 5;
+    data.velocityY += (Math.random() - 0.5) * 5;
+
+    // Move toward food if nearby (keeping this behavior the same)
     this.moveTowardNearestFood(creature);
 
     // Limit speed to reasonable values
@@ -547,7 +560,7 @@ export default class SimulationScene extends Phaser.Scene {
     let newX: number = creature.x + data.velocityX * deltaSeconds;
     let newY: number = creature.y + data.velocityY * deltaSeconds;
 
-    // Bounce off edges
+    // Bounce off edges (keeping this behavior the same)
     if (newX < this.creatureRadius || newX > width - this.creatureRadius) {
       data.velocityX = -data.velocityX;
       newX = Phaser.Math.Clamp(
@@ -815,7 +828,7 @@ export default class SimulationScene extends Phaser.Scene {
     }
 
     // Apply noise - chance of making a mistake (crucial for evolutionary stability)
-    if (Math.random() < ERROR_RATE) {
+    if (Math.random() < ERROR_RATE_INTERACTION) {
       action = action === 'C' ? 'D' : 'C';
     }
 
@@ -838,8 +851,14 @@ export default class SimulationScene extends Phaser.Scene {
       memory.set(opponentId, history);
     }
 
-    // Add this move to history
-    history.push(opponentAction);
+    const savedAction: 'C' | 'D' =
+      Math.random() < ERROR_RATE_MEMORY
+        ? opponentAction === 'C'
+          ? 'D'
+          : 'C'
+        : opponentAction;
+
+    history.push(savedAction);
 
     // Limit memory to last 10 interactions to prevent unlimited growth
     if (history.length > 10) {
