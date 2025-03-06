@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 
 // Simulation constants - these can be modified through the Setup scene
 const DEFAULT_CONFIG = {
-  INITIAL_CREATURES_PER_STRATEGY: 50,
+  INITIAL_CREATURES_PER_STRATEGY: 10,
   CREATURE_RADIUS: 15,
   INTERACTION_DISTANCE: 200,
   INTERACTION_COOLDOWN: 200,
@@ -11,10 +11,10 @@ const DEFAULT_CONFIG = {
   REPRODUCTION_COST: 100,
   MINIMUM_RESOURCE: 0,
   MAINTENANCE_COST: 5,
-  CARRYING_CAPACITY: 350, // INITIAL_CREATURES_PER_STRATEGY * 7,
+  CARRYING_CAPACITY: 100, // INITIAL_CREATURES_PER_STRATEGY * 7,
   OVERPOPULATION_FACTOR: 0.5,
   DEATH_RATE_FACTOR: 0,
-  FOOD_SPAWN_INTERVAL: 2000,
+  FOOD_SPAWN_INTERVAL: 1000,
   FOOD_VALUE: 50,
   ERROR_RATE_INTERACTION: 0.05, // 5% chance of noise/error when interacting
   ERROR_RATE_MEMORY: 0.05, // 5% chance of noise/error when storing a memory
@@ -291,9 +291,7 @@ class SetupScene extends Phaser.Scene {
     const startY = 580;
     const sliderWidth = 300;
     const sliderHeight = 8;
-    const padding = 20;
-    const slidersPerColumn = 4;
-    const totalColumns = 2;
+    const slidersPerColumn = 2;
 
     // Only keep the four requested parameters
     const parameters = [
