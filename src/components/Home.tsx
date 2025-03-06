@@ -1,6 +1,15 @@
 import React, { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 
+type SliderObject = {
+  key: string;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  init: number;
+};
+
 // Simulation constants - these can be modified through the Setup scene
 const DEFAULT_CONFIG = {
   INITIAL_CREATURES_PER_STRATEGY: 10,
@@ -16,8 +25,8 @@ const DEFAULT_CONFIG = {
   DEATH_RATE_FACTOR: 0,
   FOOD_SPAWN_INTERVAL: 1000,
   FOOD_VALUE: 50,
-  ERROR_RATE_INTERACTION: 0.05, // 5% chance of noise/error when interacting
-  ERROR_RATE_MEMORY: 0.05, // 5% chance of noise/error when storing a memory
+  ERROR_RATE_INTERACTION: 0, // 5% chance of noise/error when interacting
+  ERROR_RATE_MEMORY: 0, // 5% chance of noise/error when storing a memory
 };
 
 // Visual constants
@@ -112,6 +121,8 @@ const STRATEGY_ORDER: Strategy[] = [
   'random',
 ];
 
+const STRATEGIES_INIT: Strategy[] = ['always cooperate', 'always defect'];
+
 // Interface for creature data
 interface CreatureData {
   velocityX: number;
@@ -181,7 +192,8 @@ class SetupScene extends Phaser.Scene {
 
     // Default all strategies to enabled
     STRATEGY_ORDER.forEach((strategy) => {
-      this.config.enabledStrategies[strategy] = true;
+      const enabled: boolean = STRATEGIES_INIT.includes(strategy);
+      this.config.enabledStrategies[strategy] = enabled;
     });
   }
 
@@ -294,34 +306,38 @@ class SetupScene extends Phaser.Scene {
     const slidersPerColumn = 2;
 
     // Only keep the four requested parameters
-    const parameters = [
+    const parameters: SliderObject[] = [
       {
         key: 'REPRODUCTION_THRESHOLD',
         label: 'Reproduction Threshold',
-        min: 100,
+        min: 0,
         max: 300,
         step: 10,
+        init: DEFAULT_CONFIG.REPRODUCTION_THRESHOLD,
       },
       {
         key: 'REPRODUCTION_COST',
         label: 'Reproduction Cost',
-        min: 50,
+        min: 0,
         max: 150,
         step: 10,
+        init: DEFAULT_CONFIG.REPRODUCTION_COST,
       },
       {
         key: 'ERROR_RATE_INTERACTION',
         label: 'Interaction Error Rate',
         min: 0,
-        max: 0.2,
+        max: 1,
         step: 0.01,
+        init: DEFAULT_CONFIG.ERROR_RATE_INTERACTION,
       },
       {
         key: 'ERROR_RATE_MEMORY',
         label: 'Memory Error Rate',
         min: 0,
-        max: 0.2,
+        max: 1,
         step: 0.01,
+        init: DEFAULT_CONFIG.ERROR_RATE_MEMORY,
       },
     ];
 
@@ -341,8 +357,7 @@ class SetupScene extends Phaser.Scene {
       const x = width / 4 + column * (width / 2);
       const y = startY + row * 60;
 
-      // Label
-      const label = this.add
+      this.add
         .text(x, y, param.label, {
           fontSize: '16px',
           color: '#ffffff',
@@ -638,7 +653,7 @@ class SimulationScene extends Phaser.Scene {
     });
 
     // Create reset button
-    this.createResetButton(width, height);
+    // this.createResetButton(width, height);
 
     // Create initial creatures
     this.initializeCreatures();
