@@ -220,7 +220,8 @@ class SetupScene extends Phaser.Scene {
   }
 
   private createStrategyToggles(width: number, height: number): void {
-    const startY = 120;
+    // Increased from 120 to 160 for better spacing
+    const startY = 160;
     const padding = 15;
     const toggleSize = 30;
     const togglesPerRow = 2;
@@ -267,22 +268,18 @@ class SetupScene extends Phaser.Scene {
         .setOrigin(0, 0.5);
       container.add(description);
 
-      // Create toggle indicator
-      const indicator = this.add.circle(
-        toggleWidth / 2 - padding,
-        -toggleSize / 2,
-        10,
-        0x00ff00
-      );
-      container.add(indicator);
+      // **Removed dot indicator in favor of alpha toggling**
+
+      // Initialize alpha based on current enabled state
+      container.setAlpha(this.config.enabledStrategies[strategy] ? 1 : 0.4);
 
       // Make toggle interactive
       bg.setInteractive({ useHandCursor: true }).on('pointerdown', () => {
+        // Toggle the strategy
         this.config.enabledStrategies[strategy] =
           !this.config.enabledStrategies[strategy];
-        indicator.fillColor = this.config.enabledStrategies[strategy]
-          ? 0x00ff00
-          : 0xff0000;
+        // Change alpha to represent muted or bright
+        container.setAlpha(this.config.enabledStrategies[strategy] ? 1 : 0.4);
       });
 
       this.strategyToggles[strategy] = container;
@@ -290,28 +287,16 @@ class SetupScene extends Phaser.Scene {
   }
 
   private createParameterSliders(width: number, height: number): void {
-    const startY = 320;
+    // Increased from 320 to 580 for better spacing
+    const startY = 580;
     const sliderWidth = 300;
     const sliderHeight = 8;
     const padding = 20;
     const slidersPerColumn = 4;
     const totalColumns = 2;
 
+    // Only keep the four requested parameters
     const parameters = [
-      {
-        key: 'INITIAL_CREATURES_PER_STRATEGY',
-        label: 'Initial Creatures Per Strategy',
-        min: 10,
-        max: 100,
-        step: 5,
-      },
-      {
-        key: 'CARRYING_CAPACITY',
-        label: 'Carrying Capacity',
-        min: 100,
-        max: 700,
-        step: 50,
-      },
       {
         key: 'REPRODUCTION_THRESHOLD',
         label: 'Reproduction Threshold',
@@ -326,14 +311,6 @@ class SetupScene extends Phaser.Scene {
         max: 150,
         step: 10,
       },
-      {
-        key: 'MAINTENANCE_COST',
-        label: 'Maintenance Cost',
-        min: 1,
-        max: 10,
-        step: 1,
-      },
-      { key: 'FOOD_VALUE', label: 'Food Value', min: 20, max: 100, step: 5 },
       {
         key: 'ERROR_RATE_INTERACTION',
         label: 'Interaction Error Rate',
@@ -996,27 +973,24 @@ class SimulationScene extends Phaser.Scene {
     const height = this.game.config.height as number;
 
     // Apply random movement with inertia
-    // More frequent random changes (5% chance per frame)
     if (Math.random() < 0.05) {
-      // Add stronger random acceleration
       data.velocityX += Phaser.Math.Between(-40, 40);
       data.velocityY += Phaser.Math.Between(-40, 40);
 
-      // Occasionally make more dramatic direction changes (1% chance)
       if (Math.random() < 0.01) {
         data.velocityX = Phaser.Math.Between(-100, 100);
         data.velocityY = Phaser.Math.Between(-100, 100);
       }
     }
 
-    // Add slight random jitter to make movement less predictable
+    // Slight random jitter
     data.velocityX += (Math.random() - 0.5) * 5;
     data.velocityY += (Math.random() - 0.5) * 5;
 
-    // Move toward food if nearby (keeping this behavior the same)
+    // Move toward food if nearby
     this.moveTowardNearestFood(creature);
 
-    // Limit speed to reasonable values
+    // Limit speed
     const maxSpeed = 120;
     const speed = Math.sqrt(
       data.velocityX * data.velocityX + data.velocityY * data.velocityY
@@ -1030,7 +1004,7 @@ class SimulationScene extends Phaser.Scene {
     let newX: number = creature.x + data.velocityX * deltaSeconds;
     let newY: number = creature.y + data.velocityY * deltaSeconds;
 
-    // Bounce off edges (keeping this behavior the same)
+    // Bounce off edges
     if (newX < this.creatureRadius || newX > width - this.creatureRadius) {
       data.velocityX = -data.velocityX;
       newX = Phaser.Math.Clamp(
@@ -1049,7 +1023,6 @@ class SimulationScene extends Phaser.Scene {
       );
     }
 
-    // Update position
     creature.x = newX;
     creature.y = newY;
   }
@@ -1057,7 +1030,6 @@ class SimulationScene extends Phaser.Scene {
   private moveTowardNearestFood(creature: Phaser.GameObjects.Container): void {
     const data = creature.getData('creatureData') as CreatureData;
 
-    // Only move toward food if resources are below a threshold
     if (data.resources > this.reproductionThreshold * 0.7) return;
 
     const foodItems = this.foodGroup.getChildren();
@@ -1073,7 +1045,6 @@ class SimulationScene extends Phaser.Scene {
         // @ts-ignore
         food.y
       );
-
       if (distance < 200 && distance < nearestDistance) {
         nearestFood = food;
         nearestDistance = distance;
@@ -1081,7 +1052,6 @@ class SimulationScene extends Phaser.Scene {
     });
 
     if (nearestFood) {
-      // Apply a small force toward food
       // @ts-ignore
       const dx = nearestFood.x - creature.x;
       // @ts-ignore
@@ -1094,13 +1064,9 @@ class SimulationScene extends Phaser.Scene {
   }
 
   private createDeathEffect(x: number, y: number, color: number): void {
-    // Create simple particle effect for death
-    const particles = [];
     const particleCount = 8;
-
     for (let i = 0; i < particleCount; i++) {
       const angle = (i / particleCount) * Math.PI * 2;
-      const speed = 50;
       const particle = this.add.circle(x, y, 3, color);
 
       this.tweens.add({
@@ -1117,20 +1083,15 @@ class SimulationScene extends Phaser.Scene {
 
   private reproduce(creature: Phaser.GameObjects.Container): void {
     const data = creature.getData('creatureData') as CreatureData;
-
-    // Deduct reproduction cost
     data.resources -= this.reproductionCost;
 
-    // Create offspring
     const offspringId = Date.now() + Math.random();
     this.createCreature(data.strategy, offspringId, creature.x, creature.y);
 
-    // Increment generation counter
     this.generationCount++;
   }
 
   private handleInteractions(time: number): void {
-    // Check for interactions between all pairs of creatures
     for (let i = 0; i < this.creatures.length; i++) {
       for (let j = i + 1; j < this.creatures.length; j++) {
         const creatureA = this.creatures[i];
@@ -1139,7 +1100,6 @@ class SimulationScene extends Phaser.Scene {
         const dataA = creatureA.getData('creatureData') as CreatureData;
         const dataB = creatureB.getData('creatureData') as CreatureData;
 
-        // Skip if either creature is on cooldown
         if (
           time - dataA.lastInteractionTime < this.interactionCooldown ||
           time - dataB.lastInteractionTime < this.interactionCooldown
@@ -1147,7 +1107,6 @@ class SimulationScene extends Phaser.Scene {
           continue;
         }
 
-        // Check if creatures are close enough to interact
         const distance = Phaser.Math.Distance.Between(
           creatureA.x,
           creatureA.y,
@@ -1171,68 +1130,53 @@ class SimulationScene extends Phaser.Scene {
     const dataA = creatureA.getData('creatureData') as CreatureData;
     const dataB = creatureB.getData('creatureData') as CreatureData;
 
-    // Get actions from both creatures based on their strategies
     const actionA: 'C' | 'D' = this.getAction(creatureA, creatureB);
     const actionB: 'C' | 'D' = this.getAction(creatureB, creatureA);
 
-    // Calculate payoffs based on actions
     let payoffA: number = 0;
     let payoffB: number = 0;
 
     if (actionA === 'C' && actionB === 'C') {
-      // Both cooperate
       payoffA = PAYOFF_MATRIX.CC.A;
       payoffB = PAYOFF_MATRIX.CC.B;
     } else if (actionA === 'C' && actionB === 'D') {
-      // A cooperates, B defects
       payoffA = PAYOFF_MATRIX.CD.A;
       payoffB = PAYOFF_MATRIX.CD.B;
     } else if (actionA === 'D' && actionB === 'C') {
-      // A defects, B cooperates
       payoffA = PAYOFF_MATRIX.DC.A;
       payoffB = PAYOFF_MATRIX.DC.B;
     } else if (actionA === 'D' && actionB === 'D') {
-      // Both defect
       payoffA = PAYOFF_MATRIX.DD.A;
       payoffB = PAYOFF_MATRIX.DD.B;
     }
 
-    // Update resources and scores
     dataA.resources += payoffA;
     dataB.resources += payoffB;
     dataA.score += payoffA;
     dataB.score += payoffB;
-
-    // Update interaction counts
     dataA.interactionCount++;
     dataB.interactionCount++;
 
-    // Update cooperation counts
     if (actionA === 'C') dataA.cooperationCount++;
     if (actionB === 'C') dataB.cooperationCount++;
 
-    // Update memories (what each knows about the other)
     this.updateMemory(creatureA, creatureB, actionB);
     this.updateMemory(creatureB, creatureA, actionA);
 
-    // Update last action and payoff for win-stay-lose-shift strategy
     if (dataA.strategy === 'win-stay-lose-shift') {
       dataA.lastAction = actionA;
       dataA.lastPayoff = payoffA;
     }
-
     if (dataB.strategy === 'win-stay-lose-shift') {
       dataB.lastAction = actionB;
       dataB.lastPayoff = payoffB;
     }
 
-    // Record interaction time and partner
     dataA.lastInteractionTime = time;
     dataB.lastInteractionTime = time;
     dataA.lastPartner = dataB.id;
     dataB.lastPartner = dataA.id;
 
-    // Create visual effects for the interaction
     this.createInteractionEffect(creatureA, creatureB, actionA, actionB);
   }
 
@@ -1248,43 +1192,30 @@ class SimulationScene extends Phaser.Scene {
 
     let action: 'C' | 'D' = 'C'; // Default to cooperation
 
-    // Determine action based on strategy
     switch (strategy) {
       case 'always cooperate':
         action = 'C';
         break;
-
       case 'always defect':
         action = 'D';
         break;
-
       case 'tit-for-tat':
-        // Start with cooperation, then mirror opponent's last move
         action = pastMoves.length > 0 ? pastMoves[pastMoves.length - 1] : 'C';
         break;
-
       case 'random':
-        // Choose randomly between cooperation and defection
         action = Math.random() < 0.5 ? 'C' : 'D';
         break;
-
-      case 'win-stay-lose-shift':
-        // Also known as Pavlov in some implementations
+      case 'win-stay-lose-shift': {
         const lastAction: 'C' | 'D' = data.lastAction || 'C';
         const lastPayoff: number =
           data.lastPayoff !== undefined ? data.lastPayoff : 3;
-
-        // If last payoff was positive, repeat last action; otherwise, switch
         action = lastPayoff > 0 ? lastAction : lastAction === 'C' ? 'D' : 'C';
         break;
-
+      }
       case 'grim trigger':
-        // Cooperate until opponent defects, then always defect
         action = pastMoves.includes('D') ? 'D' : 'C';
         break;
-
       case 'tit-for-two-tats':
-        // Only defect if opponent defected twice in a row
         action =
           pastMoves.length >= 2 &&
           pastMoves[pastMoves.length - 1] === 'D' &&
@@ -1292,12 +1223,11 @@ class SimulationScene extends Phaser.Scene {
             ? 'D'
             : 'C';
         break;
-
       default:
-        action = 'C'; // Default to cooperation for unknown strategies
+        action = 'C';
     }
 
-    // Apply noise - chance of making a mistake (crucial for evolutionary stability)
+    // Apply noise
     if (Math.random() < this.errorRateInteraction) {
       action = action === 'C' ? 'D' : 'C';
     }
@@ -1314,7 +1244,6 @@ class SimulationScene extends Phaser.Scene {
     const memory = data.memory as Map<number | string, ('C' | 'D')[]>;
     const opponentId = (opponent.getData('creatureData') as CreatureData).id;
 
-    // Get existing history or create new one
     let history = memory.get(opponentId);
     if (!history) {
       history = [];
@@ -1330,7 +1259,6 @@ class SimulationScene extends Phaser.Scene {
 
     history.push(savedAction);
 
-    // Limit memory to last 10 interactions to prevent unlimited growth
     if (history.length > 10) {
       history.shift();
     }
@@ -1342,17 +1270,14 @@ class SimulationScene extends Phaser.Scene {
     actionA: 'C' | 'D',
     actionB: 'C' | 'D'
   ): void {
-    // Calculate vector between creatures
     const dx: number = creatureB.x - creatureA.x;
     const dy: number = creatureB.y - creatureA.y;
     const length: number = Math.sqrt(dx * dx + dy * dy) || 1;
 
-    // Create offset for parallel lines
     const offsetAmount: number = 3;
     const offsetX: number = -(dy / length) * offsetAmount;
     const offsetY: number = (dx / length) * offsetAmount;
 
-    // Draw line for A's action
     const graphicsA: Phaser.GameObjects.Graphics = this.add.graphics();
     const colorA = actionA === 'C' ? COLOR_GREEN : COLOR_RED;
     graphicsA.lineStyle(LINE_WIDTH, colorA, 1);
@@ -1361,7 +1286,6 @@ class SimulationScene extends Phaser.Scene {
     graphicsA.lineTo(creatureB.x + offsetX, creatureB.y + offsetY);
     graphicsA.strokePath();
 
-    // Draw line for B's action
     const graphicsB: Phaser.GameObjects.Graphics = this.add.graphics();
     const colorB = actionB === 'C' ? COLOR_GREEN : COLOR_RED;
     graphicsB.lineStyle(LINE_WIDTH, colorB, 1);
@@ -1370,7 +1294,6 @@ class SimulationScene extends Phaser.Scene {
     graphicsB.lineTo(creatureA.x - offsetX, creatureA.y - offsetY);
     graphicsB.strokePath();
 
-    // Fade out interaction lines
     this.tweens.add({
       targets: [graphicsA, graphicsB],
       alpha: 0,
@@ -1394,15 +1317,10 @@ class SimulationScene extends Phaser.Scene {
           food.y
         );
 
-        // If creature is close enough to food, consume it
         if (distance < this.creatureRadius + 15) {
           const foodValue = (food.getData('value') as number) || this.foodValue;
           const data = creature.getData('creatureData') as CreatureData;
-
-          // Add food value to creature's resources
           data.resources += foodValue;
-
-          // Remove the food
           food.destroy();
         }
       });
@@ -1412,22 +1330,14 @@ class SimulationScene extends Phaser.Scene {
   private spawnFood(): void {
     const width = this.game.config.width as number;
     const height = this.game.config.height as number;
-
-    // Random position
     const x = Phaser.Math.Between(20, width - 20);
     const y = Phaser.Math.Between(20, height - 20);
 
-    // Create food with slight size variation
     const size = Phaser.Math.Between(8, 12);
     const food = this.add.circle(x, y, size, 0xffffff);
-
-    // Set food data
     food.setData('value', this.foodValue);
-
-    // Add to food group
     this.foodGroup.add(food);
 
-    // Destroy automatically after 15 seconds if not consumed
     this.time.delayedCall(15000, () => {
       if (food.active) {
         food.destroy();
@@ -1437,8 +1347,6 @@ class SimulationScene extends Phaser.Scene {
 
   private updateStats(): void {
     const total = this.creatures.length;
-
-    // Count creatures by strategy
     const strategyCounts: Record<Strategy, number> = {} as Record<
       Strategy,
       number
@@ -1447,7 +1355,6 @@ class SimulationScene extends Phaser.Scene {
       strategyCounts[strategy] = 0;
     });
 
-    // Calculate totals and averages
     let totalResources = 0;
     let totalAge = 0;
     let totalScore = 0;
@@ -1457,7 +1364,6 @@ class SimulationScene extends Phaser.Scene {
     this.creatures.forEach((creature) => {
       const data = creature.getData('creatureData') as CreatureData;
       const strategy = data.strategy;
-
       strategyCounts[strategy] = (strategyCounts[strategy] || 0) + 1;
       totalResources += data.resources;
       totalAge += data.age;
@@ -1476,7 +1382,6 @@ class SimulationScene extends Phaser.Scene {
         : '0%';
     const foodCount = this.foodGroup.getLength();
 
-    // Build stats display
     const statsLines: string[] = [];
     statsLines.push(`**SIMULATION STATS**`);
     statsLines.push(`Generation: ${this.generationCount}`);
@@ -1487,7 +1392,6 @@ class SimulationScene extends Phaser.Scene {
     statsLines.push(`Food Available: ${foodCount}`);
     statsLines.push(`\n**POPULATION**`);
 
-    // Show strategy counts
     const activeStrategies = STRATEGY_ORDER.filter(
       (strategy) => strategyCounts[strategy] > 0
     );
