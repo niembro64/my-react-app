@@ -29,8 +29,12 @@ const DEFAULT_CONFIG = {
 };
 
 // Visual constants
-const COLOR_GREEN: number = 0xffffff;
-const COLOR_RED: number = 0x000000;
+// const COLOR_COOPERATE: number = 0xffffff;
+// const COLOR_DEFECT: number = 0x000000;
+
+const COLOR_COOPERATE: number = 0x00ff00;
+const COLOR_DEFECT: number = 0xff0000;
+
 // const COLOR_GREEN: number = 0x33bb55;
 // const COLOR_RED: number = 0xff5555;
 const LINE_WIDTH: number = 4;
@@ -307,18 +311,34 @@ class SetupScene extends Phaser.Scene {
 
     // Only keep the four requested parameters
     const parameters: SliderObject[] = [
+      // {
+      //   key: 'REPRODUCTION_THRESHOLD',
+      //   label: 'Reproduction Threshold',
+      //   min: 0,
+      //   max: 300,
+      //   step: 10,
+      //   init: DEFAULT_CONFIG.REPRODUCTION_THRESHOLD,
+      // },
+      // {
+      //   key: 'REPRODUCTION_COST',
+      //   label: 'Reproduction Cost',
+      //   min: 0,
+      //   max: 150,
+      //   step: 10,
+      //   init: DEFAULT_CONFIG.REPRODUCTION_COST,
+      // },
       {
-        key: 'REPRODUCTION_THRESHOLD',
-        label: 'Reproduction Threshold',
-        min: 0,
-        max: 300,
+        key: 'INTERACTION_COOLDOWN',
+        label: 'Interaction Cooldown',
+        min: 10,
+        max: 1000,
         step: 10,
-        init: DEFAULT_CONFIG.REPRODUCTION_THRESHOLD,
+        init: DEFAULT_CONFIG.INTERACTION_COOLDOWN,
       },
       {
         key: 'REPRODUCTION_COST',
         label: 'Reproduction Cost',
-        min: 0,
+        min: 50,
         max: 150,
         step: 10,
         init: DEFAULT_CONFIG.REPRODUCTION_COST,
@@ -787,6 +807,7 @@ class SimulationScene extends Phaser.Scene {
 
     // Create a container for the creature and its labels
     const container = this.add.container(x, y);
+    container.setDepth(1);
 
     // Add emoji indicator
     const emoji = this.add
@@ -942,6 +963,10 @@ class SimulationScene extends Phaser.Scene {
         this.overpopulationFactor *
         deltaSeconds;
       currentResources -= extraDrain;
+    }
+
+    if (this.creatures.length > this.carryingCapacity * 2) {
+      currentResources = 0;
     }
 
     data.resources = currentResources;
@@ -1279,7 +1304,8 @@ class SimulationScene extends Phaser.Scene {
     const offsetY: number = (dx / length) * offsetAmount;
 
     const graphicsA: Phaser.GameObjects.Graphics = this.add.graphics();
-    const colorA = actionA === 'C' ? COLOR_GREEN : COLOR_RED;
+
+    const colorA = actionA === 'C' ? COLOR_COOPERATE : COLOR_DEFECT;
     graphicsA.lineStyle(LINE_WIDTH, colorA, 1);
     graphicsA.beginPath();
     graphicsA.moveTo(creatureA.x + offsetX, creatureA.y + offsetY);
@@ -1287,12 +1313,16 @@ class SimulationScene extends Phaser.Scene {
     graphicsA.strokePath();
 
     const graphicsB: Phaser.GameObjects.Graphics = this.add.graphics();
-    const colorB = actionB === 'C' ? COLOR_GREEN : COLOR_RED;
+    const colorB = actionB === 'C' ? COLOR_COOPERATE : COLOR_DEFECT;
     graphicsB.lineStyle(LINE_WIDTH, colorB, 1);
     graphicsB.beginPath();
     graphicsB.moveTo(creatureB.x - offsetX, creatureB.y - offsetY);
     graphicsB.lineTo(creatureA.x - offsetX, creatureA.y - offsetY);
     graphicsB.strokePath();
+
+    // put both graphics behind the creatures
+    // graphicsA.setDepth(-1);
+    // graphicsB.setDepth(-1);
 
     this.tweens.add({
       targets: [graphicsA, graphicsB],
