@@ -5,7 +5,11 @@ import About from './components/About';
 import Contact from './components/Contact';
 
 const App: React.FC = () => {
-  return <Home />;
+  return (
+    <div className="App">
+      <Home />
+    </div>
+  );
 };
 
 export default App;
