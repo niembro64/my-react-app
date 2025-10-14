@@ -93,7 +93,7 @@ interface SimulationConfig {
   MAINTENANCE_COST: number;
   CARRYING_CAPACITY: number;
   OVERPOPULATION_FACTOR: number;
-  FOOD_SPAWN_INTERVAL: number;
+  FOOD_SPAWN_RATE: number;
   FOOD_VALUE: number;
   ERROR_RATE_INTERACTION: number;
   ERROR_RATE_MEMORY: number;
@@ -201,7 +201,7 @@ const DEFAULT_CONFIG = {
   MAINTENANCE_COST: 5,
   CARRYING_CAPACITY: 0,
   OVERPOPULATION_FACTOR: 10,
-  FOOD_SPAWN_INTERVAL: 100,
+  FOOD_SPAWN_RATE: 0,
   FOOD_VALUE: 10,
   ERROR_RATE_INTERACTION: 0,
   ERROR_RATE_MEMORY: 0,
@@ -219,6 +219,7 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
   const [parameters, setParameters] = useState({
     INTERACTION_COOLDOWN: DEFAULT_CONFIG.INTERACTION_COOLDOWN,
     REPRODUCTION_COST: DEFAULT_CONFIG.REPRODUCTION_COST,
+    FOOD_SPAWN_RATE: DEFAULT_CONFIG.FOOD_SPAWN_RATE,
     ERROR_RATE_INTERACTION: DEFAULT_CONFIG.ERROR_RATE_INTERACTION,
     ERROR_RATE_MEMORY: DEFAULT_CONFIG.ERROR_RATE_MEMORY,
   });
@@ -241,6 +242,14 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
       max: 150,
       step: 10,
       init: DEFAULT_CONFIG.REPRODUCTION_COST,
+    },
+    {
+      key: 'FOOD_SPAWN_RATE',
+      label: 'Food Spawn Rate',
+      min: 0,
+      max: 10,
+      step: 1,
+      init: DEFAULT_CONFIG.FOOD_SPAWN_RATE,
     },
     {
       key: 'ERROR_RATE_INTERACTION',

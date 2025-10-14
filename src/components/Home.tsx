@@ -14,7 +14,7 @@ const DEFAULT_CONFIG = {
   MAINTENANCE_COST: 5,
   CARRYING_CAPACITY: 0, // INITIAL_CREATURES_PER_STRATEGY * 7,
   OVERPOPULATION_FACTOR: 10, // 0.5,
-  FOOD_SPAWN_INTERVAL: 100,
+  FOOD_SPAWN_RATE: 0,
   FOOD_VALUE: 10,
   ERROR_RATE_INTERACTION: 0, // 5% chance of noise/error when interacting
   ERROR_RATE_MEMORY: 0, // 5% chance of noise/error when storing a memory
@@ -148,7 +148,7 @@ interface SimulationConfig {
   MAINTENANCE_COST: number;
   CARRYING_CAPACITY: number;
   OVERPOPULATION_FACTOR: number;
-  FOOD_SPAWN_INTERVAL: number;
+  FOOD_SPAWN_RATE: number;
   FOOD_VALUE: number;
   ERROR_RATE_INTERACTION: number;
   ERROR_RATE_MEMORY: number;
@@ -172,7 +172,7 @@ class SimulationScene extends Phaser.Scene {
   private maintenanceCost: number = DEFAULT_CONFIG.MAINTENANCE_COST;
   private carryingCapacity: number = DEFAULT_CONFIG.CARRYING_CAPACITY;
   private overpopulationFactor: number = DEFAULT_CONFIG.OVERPOPULATION_FACTOR;
-  private foodSpawnInterval: number = DEFAULT_CONFIG.FOOD_SPAWN_INTERVAL;
+  private foodSpawnRate: number = DEFAULT_CONFIG.FOOD_SPAWN_RATE;
   private creatureRadius: number = DEFAULT_CONFIG.CREATURE_RADIUS;
   private creaturesPerStrategy: number =
     DEFAULT_CONFIG.INITIAL_CREATURES_PER_STRATEGY;
@@ -203,7 +203,7 @@ class SimulationScene extends Phaser.Scene {
     this.maintenanceCost = data.MAINTENANCE_COST;
     this.carryingCapacity = data.CARRYING_CAPACITY;
     this.overpopulationFactor = data.OVERPOPULATION_FACTOR;
-    this.foodSpawnInterval = data.FOOD_SPAWN_INTERVAL;
+    this.foodSpawnRate = data.FOOD_SPAWN_RATE;
     this.creatureRadius = data.CREATURE_RADIUS;
     this.creaturesPerStrategy = data.INITIAL_CREATURES_PER_STRATEGY;
     this.errorRateInteraction = data.ERROR_RATE_INTERACTION;
@@ -256,12 +256,18 @@ class SimulationScene extends Phaser.Scene {
 
     // Create food system
     this.foodGroup = this.add.group();
-    this.foodSpawnEvent = this.time.addEvent({
-      delay: this.foodSpawnInterval,
-      callback: this.spawnFood,
-      callbackScope: this,
-      loop: true,
-    });
+
+    // Only create food spawn timer if rate is greater than 0
+    // Convert rate to interval: rate 1 = 1000ms, rate 10 = 100ms
+    if (this.foodSpawnRate > 0) {
+      const foodSpawnInterval = 1000 / this.foodSpawnRate;
+      this.foodSpawnEvent = this.time.addEvent({
+        delay: foodSpawnInterval,
+        callback: this.spawnFood,
+        callbackScope: this,
+        loop: true,
+      });
+    }
 
     // Create initial creatures
     this.initializeCreatures();
