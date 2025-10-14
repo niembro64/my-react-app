@@ -128,8 +128,8 @@ const Slider: React.FC<SliderProps> = ({ label, value, min, max, step, onChange 
           {formatValue(value)}
         </span>
       </div>
-      <div className="relative">
-        <div className="w-full h-2 bg-gray-600 rounded-full overflow-hidden">
+      <div className="relative py-2">
+        <div className="w-full h-3 bg-gray-600 rounded-full overflow-hidden">
           <div
             className="h-full bg-blue-500 transition-all duration-150"
             style={{ width: `${percentage}%` }}
@@ -142,7 +142,7 @@ const Slider: React.FC<SliderProps> = ({ label, value, min, max, step, onChange 
           step={step}
           value={value}
           onChange={(e) => onChange(parseFloat(e.target.value))}
-          className="absolute top-0 w-full h-2 appearance-none cursor-pointer slider-thumb bg-transparent"
+          className="absolute top-0 w-full h-full appearance-none cursor-pointer slider-thumb bg-transparent"
           style={{ marginTop: '0' }}
         />
       </div>
@@ -375,21 +375,31 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
         __html: `
           .slider-thumb::-webkit-slider-thumb {
             appearance: none;
-            width: 18px;
-            height: 18px;
+            width: 32px;
+            height: 32px;
             border-radius: 50%;
             background: #3b82f6;
             cursor: pointer;
-            border: 2px solid white;
+            border: 3px solid white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
           }
 
           .slider-thumb::-moz-range-thumb {
-            width: 18px;
-            height: 18px;
+            width: 32px;
+            height: 32px;
             border-radius: 50%;
             background: #3b82f6;
             cursor: pointer;
-            border: 2px solid white;
+            border: 3px solid white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+          }
+
+          .slider-thumb::-webkit-slider-thumb:active {
+            transform: scale(1.1);
+          }
+
+          .slider-thumb::-moz-range-thumb:active {
+            transform: scale(1.1);
           }
         `
       }} />
