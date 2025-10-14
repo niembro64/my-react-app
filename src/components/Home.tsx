@@ -1,16 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Phaser from 'phaser';
+import SetupScreen from './SetupScreen';
 
-type SliderObject = {
-  key: string;
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-  init: number;
-};
-
-// Simulation constants - these can be modified through the Setup scene
+// Simulation constants
 const DEFAULT_CONFIG = {
   INITIAL_CREATURES_PER_STRATEGY: 10,
   CREATURE_RADIUS: 20,
@@ -38,10 +30,6 @@ const COLOR_DEFECT: number = 0xff0000;
 // const COLOR_GREEN: number = 0x33bb55;
 // const COLOR_RED: number = 0xff5555;
 const LINE_WIDTH: number = 4;
-
-// Helper to convert a numeric color to a hex string
-const colorToHex = (color: number): string =>
-  '#' + color.toString(16).padStart(6, '0');
 
 // Prisoner's Dilemma payoff matrix - R,T,P,S values
 const PAYOFF_MATRIX = {
@@ -126,8 +114,6 @@ const STRATEGY_ORDER: Strategy[] = [
   'random',
 ];
 
-const STRATEGIES_INIT: Strategy[] = ['always cooperate', 'always defect'];
-
 // Interface for creature data
 interface CreatureData {
   velocityX: number;
@@ -167,396 +153,6 @@ interface SimulationConfig {
   ERROR_RATE_INTERACTION: number;
   ERROR_RATE_MEMORY: number;
   enabledStrategies: Record<Strategy, boolean>;
-}
-
-// Setup Scene for configuring simulation parameters
-class SetupScene extends Phaser.Scene {
-  private config: SimulationConfig;
-  private title!: Phaser.GameObjects.Text;
-  private strategyToggles: Record<Strategy, Phaser.GameObjects.Container> =
-    {} as Record<Strategy, Phaser.GameObjects.Container>;
-  private sliders: Record<
-    string,
-    {
-      slider: Phaser.GameObjects.Graphics;
-      text: Phaser.GameObjects.Text;
-      value: number;
-    }
-  > = {};
-  private startButton!: Phaser.GameObjects.Container;
-
-  constructor() {
-    super({ key: 'SetupScene' });
-
-    // Initialize configuration with default values
-    this.config = {
-      ...DEFAULT_CONFIG,
-      enabledStrategies: {} as Record<Strategy, boolean>,
-    };
-
-    // Default all strategies to enabled
-    STRATEGY_ORDER.forEach((strategy) => {
-      const enabled: boolean = STRATEGIES_INIT.includes(strategy);
-      this.config.enabledStrategies[strategy] = enabled;
-    });
-  }
-
-  create(): void {
-    const width = this.cameras.main.width as number;
-    const height = this.cameras.main.height as number;
-
-    // Create a dark background
-    this.add.rectangle(0, 0, width, height, 0x1a1a2e).setOrigin(0, 0);
-
-    // Title
-    this.title = this.add
-      .text(width / 2, 40, "AXELROD'S TOURNAMENT SIMULATOR", {
-        fontSize: '28px',
-        color: '#ffffff',
-        fontStyle: 'bold',
-      })
-      .setOrigin(0.5, 0);
-
-    // Subtitle
-    this.add
-      .text(width / 2, 80, 'Select strategies and configure parameters', {
-        fontSize: '18px',
-        color: '#cccccc',
-      })
-      .setOrigin(0.5, 0);
-
-    // Create strategy toggles
-    this.createStrategyToggles(width, height);
-
-    // Create parameter sliders
-    this.createParameterSliders(width, height);
-
-    // Create start button
-    this.createStartButton(width, height);
-  }
-
-  private createStrategyToggles(width: number, height: number): void {
-    // Increased from 120 to 160 for better spacing
-    const startY = 160;
-    const padding = 15;
-    const toggleSize = 30;
-    const togglesPerRow = 2;
-    const toggleWidth = width / togglesPerRow - padding * 2;
-
-    STRATEGY_ORDER.forEach((strategy, index) => {
-      const row = Math.floor(index / togglesPerRow);
-      const col = index % togglesPerRow;
-      const x = padding + col * (toggleWidth + padding) + toggleWidth / 2;
-      const y = startY + row * (toggleSize + padding) * 2;
-
-      const container = this.add.container(x, y);
-      const info = STRATEGY_INFO[strategy];
-
-      // Create toggle background
-      const bg = this.add
-        .rectangle(0, 0, toggleWidth, toggleSize * 2, 0x222244)
-        .setStrokeStyle(2, 0x444488);
-      container.add(bg);
-
-      // Create emoji and name
-      const emoji = this.add
-        .text(-toggleWidth / 2 + padding, -toggleSize / 2, info.emoji, {
-          fontSize: '24px',
-        })
-        .setOrigin(0, 0.5);
-      container.add(emoji);
-
-      const name = this.add
-        .text(-toggleWidth / 2 + padding + 40, -toggleSize / 2, info.longName, {
-          fontSize: '18px',
-          color: '#ffffff',
-        })
-        .setOrigin(0, 0.5);
-      container.add(name);
-
-      // Create description
-      const description = this.add
-        .text(-toggleWidth / 2 + padding, toggleSize / 2, info.description, {
-          fontSize: '14px',
-          color: '#aaaaaa',
-          wordWrap: { width: toggleWidth - padding * 2 },
-        })
-        .setOrigin(0, 0.5);
-      container.add(description);
-
-      // **Removed dot indicator in favor of alpha toggling**
-
-      // Initialize alpha based on current enabled state
-      container.setAlpha(this.config.enabledStrategies[strategy] ? 1 : 0.4);
-
-      // Make toggle interactive
-      bg.setInteractive({ useHandCursor: true }).on('pointerdown', () => {
-        // Toggle the strategy
-        this.config.enabledStrategies[strategy] =
-          !this.config.enabledStrategies[strategy];
-        // Change alpha to represent muted or bright
-        container.setAlpha(this.config.enabledStrategies[strategy] ? 1 : 0.4);
-      });
-
-      this.strategyToggles[strategy] = container;
-    });
-  }
-
-  private createParameterSliders(width: number, height: number): void {
-    // Increased from 320 to 580 for better spacing
-    const startY = 580;
-    const sliderWidth = 300;
-    const sliderHeight = 8;
-    const slidersPerColumn = 2;
-
-    // Only keep the four requested parameters
-    const parameters: SliderObject[] = [
-      // {
-      //   key: 'REPRODUCTION_THRESHOLD',
-      //   label: 'Reproduction Threshold',
-      //   min: 0,
-      //   max: 300,
-      //   step: 10,
-      //   init: DEFAULT_CONFIG.REPRODUCTION_THRESHOLD,
-      // },
-      // {
-      //   key: 'REPRODUCTION_COST',
-      //   label: 'Reproduction Cost',
-      //   min: 0,
-      //   max: 150,
-      //   step: 10,
-      //   init: DEFAULT_CONFIG.REPRODUCTION_COST,
-      // },
-      {
-        key: 'INTERACTION_COOLDOWN',
-        label: 'Interaction Cooldown',
-        min: 10,
-        max: 1000,
-        step: 10,
-        init: DEFAULT_CONFIG.INTERACTION_COOLDOWN,
-      },
-      {
-        key: 'REPRODUCTION_COST',
-        label: 'Reproduction Cost',
-        min: 50,
-        max: 150,
-        step: 10,
-        init: DEFAULT_CONFIG.REPRODUCTION_COST,
-      },
-      {
-        key: 'ERROR_RATE_INTERACTION',
-        label: 'Interaction Error Rate',
-        min: 0,
-        max: 1,
-        step: 0.01,
-        init: DEFAULT_CONFIG.ERROR_RATE_INTERACTION,
-      },
-      {
-        key: 'ERROR_RATE_MEMORY',
-        label: 'Memory Error Rate',
-        min: 0,
-        max: 1,
-        step: 0.01,
-        init: DEFAULT_CONFIG.ERROR_RATE_MEMORY,
-      },
-    ];
-
-    // Initialize all slider objects first
-    parameters.forEach((param) => {
-      this.sliders[param.key] = {
-        slider: null as any,
-        text: null as any,
-        value: this.config[param.key as keyof SimulationConfig] as number,
-      };
-    });
-
-    parameters.forEach((param, index) => {
-      const column = Math.floor(index / slidersPerColumn);
-      const row = index % slidersPerColumn;
-
-      const x = width / 4 + column * (width / 2);
-      const y = startY + row * 60;
-
-      this.add
-        .text(x, y, param.label, {
-          fontSize: '16px',
-          color: '#ffffff',
-        })
-        .setOrigin(0.5, 0);
-
-      // Slider track
-      const sliderTrack = this.add.graphics();
-      sliderTrack.fillStyle(0x444444, 1);
-      sliderTrack.fillRect(
-        x - sliderWidth / 2,
-        y + 30,
-        sliderWidth,
-        sliderHeight
-      );
-
-      // Slider handle
-      const sliderHandle = this.add.graphics();
-
-      // Value text
-      const valueText = this.add
-        .text(x + sliderWidth / 2 + 20, y + 30, '', {
-          fontSize: '16px',
-          color: '#ffffff',
-        })
-        .setOrigin(0, 0.5);
-
-      // Get the current value
-      const currentValue = this.sliders[param.key].value;
-      const initialPosition =
-        ((currentValue - param.min) / (param.max - param.min)) * sliderWidth;
-
-      // Update slider references
-      this.sliders[param.key].slider = sliderHandle;
-      this.sliders[param.key].text = valueText;
-
-      // Update function
-      const updateSlider = (position: number) => {
-        // Clear and redraw handle
-        sliderHandle.clear();
-        sliderHandle.fillStyle(0x00aaff, 1);
-        sliderHandle.fillCircle(
-          x - sliderWidth / 2 + position,
-          y + 30 + sliderHeight / 2,
-          10
-        );
-
-        // Calculate value
-        let value =
-          param.min + (position / sliderWidth) * (param.max - param.min);
-        value = Math.round(value / param.step) * param.step;
-
-        // Update value in config
-        this.config[param.key as keyof SimulationConfig] = value as never;
-
-        // Update text
-        valueText.setText(value.toFixed(param.step < 1 ? 2 : 0));
-
-        // Store value for reference
-        this.sliders[param.key].value = value;
-      };
-
-      // Initialize slider
-      updateSlider(initialPosition);
-
-      // Make slider interactive
-      const hitArea = this.add
-        .rectangle(
-          x,
-          y + 30 + sliderHeight / 2,
-          sliderWidth + 20,
-          30,
-          0xffffff,
-          0
-        )
-        .setInteractive({ useHandCursor: true })
-        .on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-          const position = Phaser.Math.Clamp(
-            pointer.x - (x - sliderWidth / 2),
-            0,
-            sliderWidth
-          );
-          updateSlider(position);
-        })
-        .on('pointermove', (pointer: Phaser.Input.Pointer) => {
-          if (pointer.isDown) {
-            const position = Phaser.Math.Clamp(
-              pointer.x - (x - sliderWidth / 2),
-              0,
-              sliderWidth
-            );
-            updateSlider(position);
-          }
-        });
-    });
-  }
-
-  private createStartButton(width: number, height: number): void {
-    const buttonWidth = 200;
-    const buttonHeight = 50;
-    const x = width / 2;
-    const y = height - 60;
-
-    const container = this.add.container(x, y);
-
-    // Button background
-    const bg = this.add
-      .rectangle(0, 0, buttonWidth, buttonHeight, 0x0066cc)
-      .setStrokeStyle(3, 0x0088ff);
-    container.add(bg);
-
-    // Button text
-    const text = this.add
-      .text(0, 0, 'START SIMULATION', {
-        fontSize: '20px',
-        color: '#ffffff',
-        fontStyle: 'bold',
-      })
-      .setOrigin(0.5);
-    container.add(text);
-
-    // Make interactive
-    bg.setInteractive({ useHandCursor: true })
-      .on('pointerover', () => {
-        bg.fillColor = 0x0088ff;
-      })
-      .on('pointerout', () => {
-        bg.fillColor = 0x0066cc;
-      })
-      .on('pointerdown', () => {
-        // Start simulation with configured parameters
-        this.startSimulation();
-      });
-
-    this.startButton = container;
-  }
-
-  private startSimulation(): void {
-    // Check that at least one strategy is enabled
-    const anyStrategyEnabled = Object.values(
-      this.config.enabledStrategies
-    ).some((enabled) => enabled);
-
-    if (!anyStrategyEnabled) {
-      // Show error message
-      const errorText = this.add
-        .text(
-          this.cameras.main.width / 2,
-          this.startButton.y - 40,
-          'Please select at least one strategy',
-          {
-            fontSize: '18px',
-            color: '#ff0000',
-            fontStyle: 'bold',
-          }
-        )
-        .setOrigin(0.5);
-
-      // Fade out after 2 seconds
-      this.tweens.add({
-        targets: errorText,
-        alpha: 0,
-        duration: 2000,
-        onComplete: () => errorText.destroy(),
-      });
-
-      return;
-    }
-
-    // Update carrying capacity based on creatures per strategy and enabled strategies
-    const enabledStrategyCount = Object.values(
-      this.config.enabledStrategies
-    ).filter(Boolean).length;
-    this.config.CARRYING_CAPACITY =
-      this.config.INITIAL_CREATURES_PER_STRATEGY * enabledStrategyCount * 2;
-
-    // Start simulation scene
-    this.scene.start('SimulationScene', this.config);
-  }
 }
 
 // Main simulation scene
@@ -1445,32 +1041,54 @@ class SimulationScene extends Phaser.Scene {
 
 const Home: React.FC = () => {
   const gameRef = useRef<HTMLDivElement>(null);
+  const gameInstanceRef = useRef<Phaser.Game | null>(null);
+  const [showSetup, setShowSetup] = useState(true);
+  const [simulationConfig, setSimulationConfig] = useState<SimulationConfig | null>(null);
 
   const borderAmount: number = 0.05;
 
+  const handleStartSimulation = (config: SimulationConfig) => {
+    setSimulationConfig(config);
+    setShowSetup(false);
+  };
+
   useEffect(() => {
-    const config: Phaser.Types.Core.GameConfig = {
-      type: Phaser.AUTO,
-      width: window.innerWidth * (1 - borderAmount),
-      height: window.innerHeight - window.innerWidth * borderAmount,
-      parent: gameRef.current!,
-      scene: [SetupScene, SimulationScene],
-      physics: {
-        default: 'arcade',
-        arcade: {
-          debug: false,
-          gravity: { x: 0, y: 0 },
+    if (!showSetup && simulationConfig && gameRef.current) {
+      const config: Phaser.Types.Core.GameConfig = {
+        type: Phaser.AUTO,
+        width: window.innerWidth * (1 - borderAmount),
+        height: window.innerHeight - window.innerWidth * borderAmount,
+        parent: gameRef.current,
+        scene: [], // Empty array - we'll add the scene manually with data
+        physics: {
+          default: 'arcade',
+          arcade: {
+            debug: false,
+            gravity: { x: 0, y: 0 },
+          },
         },
-      },
-    };
+      };
 
-    const game = new Phaser.Game(config);
+      gameInstanceRef.current = new Phaser.Game(config);
 
-    // Clean up the Phaser game instance on component unmount.
-    return () => {
-      game.destroy(true);
-    };
-  }, []);
+      // Add and start the simulation scene with the config data
+      // The 'true' parameter auto-starts the scene
+      // The last parameter is passed to the scene's init() method
+      gameInstanceRef.current.scene.add('SimulationScene', SimulationScene, true, simulationConfig);
+
+      // Clean up the Phaser game instance on component unmount.
+      return () => {
+        if (gameInstanceRef.current) {
+          gameInstanceRef.current.destroy(true);
+          gameInstanceRef.current = null;
+        }
+      };
+    }
+  }, [showSetup, simulationConfig]);
+
+  if (showSetup) {
+    return <SetupScreen onStart={handleStartSimulation} />;
+  }
 
   return (
     <div
