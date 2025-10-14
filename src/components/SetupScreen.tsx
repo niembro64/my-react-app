@@ -62,12 +62,12 @@ const STRATEGY_INFO: Record<Strategy, StrategyInfo> = {
 };
 
 const STRATEGY_ORDER: Strategy[] = [
+  'always cooperate',
+  'always defect',
   'tit-for-tat',
   'tit-for-two-tats',
   'win-stay-lose-shift',
   'grim trigger',
-  'always cooperate',
-  'always defect',
   'random',
 ];
 
@@ -163,7 +163,7 @@ const StrategyCard: React.FC<StrategyCardProps> = ({ strategy, enabled, onToggle
     <button
       onClick={onToggle}
       className={`
-        relative rounded-lg p-4
+        rounded-lg p-3
         transition-all duration-200 cursor-pointer
         text-left w-full
         hover:shadow-md
@@ -174,25 +174,16 @@ const StrategyCard: React.FC<StrategyCardProps> = ({ strategy, enabled, onToggle
         }
       `}
     >
-      {/* Selection Checkmark */}
-      {enabled && (
-        <div className="absolute top-3 right-3 bg-white rounded-full w-6 h-6 flex items-center justify-center">
-          <svg className="w-4 h-4 text-blue-600" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" viewBox="0 0 24 24" stroke="currentColor">
-            <path d="M5 13l4 4L19 7"></path>
-          </svg>
-        </div>
-      )}
-
       <div className="flex items-start space-x-3 mb-2">
         <span className="text-2xl">{info.emoji}</span>
-        <div className="flex-1 pr-8">
+        <div className="flex-1">
           <h3 className="text-white text-base font-semibold">
             {info.longName}
           </h3>
         </div>
       </div>
 
-      <p className={`text-sm leading-relaxed ${enabled ? 'text-blue-100' : 'text-gray-400'}`}>
+      <p className={`text-sm leading-relaxed hidden md:block ${enabled ? 'text-blue-100' : 'text-gray-400'}`}>
         {info.description}
       </p>
     </button>
@@ -324,7 +315,7 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
           <h2 className="text-xl md:text-2xl font-semibold text-white mb-4">
             Strategies
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-2 gap-3 md:gap-4">
             {STRATEGY_ORDER.map((strategy) => (
               <StrategyCard
                 key={strategy}
@@ -341,7 +332,7 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
           <h2 className="text-xl md:text-2xl font-semibold text-white mb-4">
             Parameters
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
+          <div className="grid grid-cols-2 gap-3 md:gap-4">
             {sliderConfigs.map((config) => (
               <Slider
                 key={config.key}

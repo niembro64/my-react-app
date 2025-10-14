@@ -161,7 +161,6 @@ class SimulationScene extends Phaser.Scene {
   private creatures: Phaser.GameObjects.Container[] = [];
   private foodGroup!: Phaser.GameObjects.Group;
   private statsText!: Phaser.GameObjects.Text;
-  private resetButton!: Phaser.GameObjects.Container;
 
   // Simulation parameters
   private config!: SimulationConfig;
@@ -239,18 +238,18 @@ class SimulationScene extends Phaser.Scene {
       graphics.strokePath();
     }
 
-    // Create UI panel for stats
+    // Create UI panel for stats - sized to fit content
     const panel = this.add.graphics();
-    panel.fillStyle(0x000000, 0.7);
-    panel.fillRoundedRect(10, 10, 300, 400, 10);
+    panel.fillStyle(0x000000, 0.8);
+    panel.fillRoundedRect(15, 60, 380, 350, 10);
     panel.setScrollFactor(0);
     panel.setDepth(1000);
 
-    // Create stats text
-    this.statsText = this.add.text(20, 20, '', {
-      fontSize: '16px',
+    // Create stats text with monospace font for proper table alignment
+    this.statsText = this.add.text(25, 70, '', {
+      fontSize: '14px',
       color: '#ffffff',
-      fontFamily: 'Arial',
+      fontFamily: 'Courier New, monospace',
     });
     this.statsText.setScrollFactor(0);
     this.statsText.setDepth(1001);
@@ -264,97 +263,8 @@ class SimulationScene extends Phaser.Scene {
       loop: true,
     });
 
-    // Create reset button
-    // this.createResetButton(width, height);
-
     // Create initial creatures
     this.initializeCreatures();
-
-    // Create strategy legend
-    this.createStrategyLegend(width, height);
-  }
-
-  private createResetButton(width: number, height: number): void {
-    const buttonWidth = 120;
-    const buttonHeight = 40;
-    const x = width - buttonWidth / 2 - 10;
-    const y = 30;
-
-    const container = this.add.container(x, y);
-    container.setDepth(1001);
-
-    // Button background
-    const bg = this.add
-      .rectangle(0, 0, buttonWidth, buttonHeight, 0x990000)
-      .setStrokeStyle(2, 0xff0000);
-    container.add(bg);
-
-    // Button text
-    const text = this.add
-      .text(0, 0, 'RESET', {
-        fontSize: '18px',
-        color: '#ffffff',
-        fontStyle: 'bold',
-      })
-      .setOrigin(0.5);
-    container.add(text);
-
-    // Make interactive
-    bg.setInteractive({ useHandCursor: true })
-      .on('pointerover', () => {
-        bg.fillColor = 0xcc0000;
-      })
-      .on('pointerout', () => {
-        bg.fillColor = 0x990000;
-      })
-      .on('pointerdown', () => {
-        // Go back to setup scene
-        this.scene.start('SetupScene');
-      });
-
-    this.resetButton = container;
-  }
-
-  private createStrategyLegend(width: number, height: number): void {
-    const legendY = height - 100;
-    const panel = this.add.graphics();
-    panel.fillStyle(0x000000, 0.7);
-    panel.fillRoundedRect(10, legendY, width - 20, 90, 10);
-    panel.setDepth(1000);
-
-    const title = this.add
-      .text(width / 2, legendY + 10, "AXELROD'S TOURNAMENT STRATEGIES", {
-        fontSize: '18px',
-        color: '#ffffff',
-        fontStyle: 'bold',
-      })
-      .setOrigin(0.5, 0);
-    title.setDepth(1001);
-
-    // Create legend items - only for enabled strategies
-    const enabledStrategies = STRATEGY_ORDER.filter(
-      (strategy) => this.enabledStrategies[strategy]
-    );
-    const itemWidth = 200;
-    const itemsPerRow = 3;
-    const startX = 20;
-    const startY = legendY + 40;
-
-    enabledStrategies.forEach((strategy, index) => {
-      const row = Math.floor(index / itemsPerRow);
-      const col = index % itemsPerRow;
-      const x = startX + col * itemWidth;
-      const y = startY + row * 30;
-
-      const info = STRATEGY_INFO[strategy];
-
-      // Create text with emoji
-      const text = this.add.text(x + 25, y, `${info.emoji} ${info.longName}`, {
-        fontSize: '14px',
-        color: '#ffffff',
-      });
-      text.setDepth(1001);
-    });
   }
 
   private initializeCreatures(): void {
@@ -1009,31 +919,47 @@ class SimulationScene extends Phaser.Scene {
     const foodCount = this.foodGroup.getLength();
 
     const statsLines: string[] = [];
-    statsLines.push(`**SIMULATION STATS**`);
-    statsLines.push(`Generation: ${this.generationCount}`);
-    statsLines.push(`Time: ${this.simulationTime.toFixed(0)}s`);
-    statsLines.push(`Creatures: ${total}/${this.carryingCapacity}`);
-    statsLines.push(`Interactions: ${this.totalInteractions}`);
-    statsLines.push(`Cooperation Rate: ${overallCooperationRate}`);
-    statsLines.push(`Food Available: ${foodCount}`);
-    statsLines.push(`\n**POPULATION**`);
+    statsLines.push(`SIMULATION STATS`);
+    statsLines.push(`${'='.repeat(42)}`);
+    statsLines.push(`Generations Born: ${this.generationCount}`);
+    statsLines.push(`Time Elapsed:     ${this.simulationTime.toFixed(0)}s`);
+    statsLines.push(`Total Population: ${total}/${this.carryingCapacity}`);
+    statsLines.push(`Total Interactions: ${this.totalInteractions}`);
+    statsLines.push(`Overall Coop Rate: ${overallCooperationRate}`);
+    statsLines.push(`Food Available:   ${foodCount}`);
+    statsLines.push(`Avg Resources:    ${avgResources}`);
+    statsLines.push(`Avg Age:          ${avgAge}s`);
+    statsLines.push(`Avg Score:        ${avgScore}`);
+    statsLines.push(``);
+    statsLines.push(`POPULATION`);
+    statsLines.push(`${'='.repeat(42)}`);
 
     const activeStrategies = STRATEGY_ORDER.filter(
-      (strategy) => strategyCounts[strategy] > 0
+      (strategy) => this.enabledStrategies[strategy]
     );
+
+    // Create table with proper column alignment
+    // Header row
+    statsLines.push(`  Name   #   Distribution`);
+    statsLines.push(`${'-'.repeat(42)}`);
+
+    // Data rows
     activeStrategies.forEach((strategy) => {
       const info = STRATEGY_INFO[strategy];
       const count = strategyCounts[strategy];
-      const percent = total > 0 ? ((count / total) * 100).toFixed(1) : '0';
+      const percent = total > 0 ? (count / total) * 100 : 0;
+      const barLength = Math.floor(percent / 5); // 20 chars max (100% / 5)
+      const bar = '█'.repeat(barLength) + ' '.repeat(20 - barLength);
+
+      // Format: emoji + 4-char name  count  percentage + bar
+      const name = `${info.emoji} ${info.shortName.padEnd(4)}`;
+      const countStr = count.toString().padStart(3);
+      const percentStr = percent.toFixed(1).padStart(5);
+
       statsLines.push(
-        `${info.emoji} ${info.shortName}: ${count} (${percent}%)`
+        `${name} ${countStr}  ${percentStr}% ${bar}`
       );
     });
-
-    statsLines.push(`\n**AVERAGES**`);
-    statsLines.push(`Resources: ${avgResources}`);
-    statsLines.push(`Age: ${avgAge}s`);
-    statsLines.push(`Score: ${avgScore}`);
 
     this.statsText.setText(statsLines.join('\n'));
   }
@@ -1045,7 +971,7 @@ const Home: React.FC = () => {
   const [showSetup, setShowSetup] = useState(true);
   const [simulationConfig, setSimulationConfig] = useState<SimulationConfig | null>(null);
 
-  const borderAmount: number = 0.05;
+  const borderAmount: number = 0;
 
   const handleStartSimulation = (config: SimulationConfig) => {
     setSimulationConfig(config);
@@ -1056,8 +982,8 @@ const Home: React.FC = () => {
     if (!showSetup && simulationConfig && gameRef.current) {
       const config: Phaser.Types.Core.GameConfig = {
         type: Phaser.AUTO,
-        width: window.innerWidth * (1 - borderAmount),
-        height: window.innerHeight - window.innerWidth * borderAmount,
+        width: window.innerWidth,
+        height: window.innerHeight,
         parent: gameRef.current,
         scene: [], // Empty array - we'll add the scene manually with data
         physics: {
@@ -1098,16 +1024,17 @@ const Home: React.FC = () => {
         justifyContent: 'center',
         alignItems: 'center',
         height: '100vh',
+        width: '100vw',
         backgroundColor: '#121220',
+        overflow: 'hidden',
+        margin: 0,
+        padding: 0,
       }}
     >
       <div
         ref={gameRef}
         style={{
-          border: '1px solid #333',
-          borderRadius: '8px',
           overflow: 'hidden',
-          boxShadow: '0 0 20px rgba(0, 0, 0, 0.5)',
         }}
       />
     </div>
