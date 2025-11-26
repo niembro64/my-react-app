@@ -32,7 +32,7 @@ const STRATEGY_INFO: Record<Strategy, StrategyInfo> = {
   'win-stay-lose-shift': {
     longName: 'Win-Stay Lose-Shift',
     shortName: 'WSLS',
-    emoji: '⚪',
+    emoji: '🟡',
     description: 'Repeat last move if good outcome, change if bad outcome',
   },
   'always cooperate': {
@@ -56,7 +56,7 @@ const STRATEGY_INFO: Record<Strategy, StrategyInfo> = {
   random: {
     longName: 'Random',
     shortName: 'RAND',
-    emoji: '🟡',
+    emoji: '⚪',
     description: 'Choose randomly between cooperation and defection',
   },
 };
@@ -71,7 +71,15 @@ const STRATEGY_ORDER: Strategy[] = [
   'random',
 ];
 
-const STRATEGIES_INIT: Strategy[] = ['always cooperate', 'always defect'];
+const STRATEGIES_INIT: Strategy[] = [
+  'always cooperate',
+  'always defect',
+  'tit-for-tat',
+  // 'tit-for-two-tats',
+  // 'win-stay-lose-shift',
+  // 'grim trigger',
+  'random',
+];
 
 interface SliderConfig {
   key: string;
@@ -86,7 +94,7 @@ interface SimulationConfig {
   INITIAL_CREATURES_PER_STRATEGY: number;
   CREATURE_RADIUS: number;
   INTERACTION_DISTANCE: number;
-  INTERACTION_COOLDOWN: number;
+  INTERACTION_SPEED: number;
   REPRODUCTION_THRESHOLD: number;
   REPRODUCTION_COST: number;
   MINIMUM_RESOURCE: number;
@@ -97,6 +105,10 @@ interface SimulationConfig {
   FOOD_VALUE: number;
   ERROR_RATE_INTERACTION: number;
   ERROR_RATE_MEMORY: number;
+  SPEED_RANDOM: number;
+  SPEED_FOOD: number;
+  SPEED_FLEE: number;
+  SPEED_CHASE: number;
   enabledStrategies: Record<Strategy, boolean>;
 }
 
@@ -113,7 +125,14 @@ interface SliderProps {
   onChange: (value: number) => void;
 }
 
-const Slider: React.FC<SliderProps> = ({ label, value, min, max, step, onChange }) => {
+const Slider: React.FC<SliderProps> = ({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}) => {
   const formatValue = (val: number): string => {
     return step < 1 ? val.toFixed(2) : val.toFixed(0);
   };
@@ -156,7 +175,11 @@ interface StrategyCardProps {
   onToggle: () => void;
 }
 
-const StrategyCard: React.FC<StrategyCardProps> = ({ strategy, enabled, onToggle }) => {
+const StrategyCard: React.FC<StrategyCardProps> = ({
+  strategy,
+  enabled,
+  onToggle,
+}) => {
   const info = STRATEGY_INFO[strategy];
 
   return (
@@ -174,16 +197,20 @@ const StrategyCard: React.FC<StrategyCardProps> = ({ strategy, enabled, onToggle
         }
       `}
     >
-      <div className="flex items-start space-x-3 mb-2">
-        <span className="text-2xl">{info.emoji}</span>
+      <div className="flex items-center space-x-3 mb-2">
+        <span className="text-2xl leading-none">{info.emoji}</span>
         <div className="flex-1">
-          <h3 className="text-white text-base font-semibold">
+          <h3 className="text-white text-base font-semibold leading-none">
             {info.longName}
           </h3>
         </div>
       </div>
 
-      <p className={`text-sm leading-relaxed hidden md:block ${enabled ? 'text-blue-100' : 'text-gray-400'}`}>
+      <p
+        className={`text-sm leading-relaxed hidden md:block ${
+          enabled ? 'text-blue-100' : 'text-gray-400'
+        }`}
+      >
         {info.description}
       </p>
     </button>
@@ -194,21 +221,27 @@ const DEFAULT_CONFIG = {
   INITIAL_CREATURES_PER_STRATEGY: 10,
   CREATURE_RADIUS: 20,
   INTERACTION_DISTANCE: 200,
-  INTERACTION_COOLDOWN: 200,
+  INTERACTION_SPEED: 960, // High = fast (converts to cooldown: 1010 - speed)
   REPRODUCTION_THRESHOLD: 200,
   REPRODUCTION_COST: 100,
-  MINIMUM_RESOURCE: 0,
+  MINIMUM_RESOURCE: 10,
   MAINTENANCE_COST: 5,
   CARRYING_CAPACITY: 0,
   OVERPOPULATION_FACTOR: 10,
-  FOOD_SPAWN_RATE: 0,
-  FOOD_VALUE: 10,
-  ERROR_RATE_INTERACTION: 0,
-  ERROR_RATE_MEMORY: 0,
+  FOOD_SPAWN_RATE: 10,
+  FOOD_VALUE: 60,
+  ERROR_RATE_INTERACTION: 0.05,
+  ERROR_RATE_MEMORY: 0.05,
+  SPEED_RANDOM: 5,
+  SPEED_FOOD: 50,
+  SPEED_FLEE: 60,
+  SPEED_CHASE: 10,
 };
 
 const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
-  const [enabledStrategies, setEnabledStrategies] = useState<Record<Strategy, boolean>>(() => {
+  const [enabledStrategies, setEnabledStrategies] = useState<
+    Record<Strategy, boolean>
+  >(() => {
     const initial: Record<Strategy, boolean> = {} as Record<Strategy, boolean>;
     STRATEGY_ORDER.forEach((strategy) => {
       initial[strategy] = STRATEGIES_INIT.includes(strategy);
@@ -217,27 +250,63 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
   });
 
   const [parameters, setParameters] = useState({
-    INTERACTION_COOLDOWN: DEFAULT_CONFIG.INTERACTION_COOLDOWN,
+    INTERACTION_SPEED: DEFAULT_CONFIG.INTERACTION_SPEED,
     REPRODUCTION_COST: DEFAULT_CONFIG.REPRODUCTION_COST,
     FOOD_SPAWN_RATE: DEFAULT_CONFIG.FOOD_SPAWN_RATE,
     ERROR_RATE_INTERACTION: DEFAULT_CONFIG.ERROR_RATE_INTERACTION,
     ERROR_RATE_MEMORY: DEFAULT_CONFIG.ERROR_RATE_MEMORY,
+    SPEED_RANDOM: DEFAULT_CONFIG.SPEED_RANDOM,
+    SPEED_FOOD: DEFAULT_CONFIG.SPEED_FOOD,
+    SPEED_FLEE: DEFAULT_CONFIG.SPEED_FLEE,
+    SPEED_CHASE: DEFAULT_CONFIG.SPEED_CHASE,
   });
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const sliderConfigs: SliderConfig[] = [
     {
-      key: 'INTERACTION_COOLDOWN',
-      label: 'Interaction Cooldown',
+      key: 'SPEED_RANDOM',
+      label: 'Wander',
+      min: 0,
+      max: 100,
+      step: 5,
+      init: DEFAULT_CONFIG.SPEED_RANDOM,
+    },
+    {
+      key: 'SPEED_FOOD',
+      label: 'Seek Food',
+      min: 0,
+      max: 100,
+      step: 5,
+      init: DEFAULT_CONFIG.SPEED_FOOD,
+    },
+    {
+      key: 'SPEED_FLEE',
+      label: 'Flee',
+      min: 0,
+      max: 100,
+      step: 5,
+      init: DEFAULT_CONFIG.SPEED_FLEE,
+    },
+    {
+      key: 'SPEED_CHASE',
+      label: 'Chase',
+      min: 0,
+      max: 100,
+      step: 5,
+      init: DEFAULT_CONFIG.SPEED_CHASE,
+    },
+    {
+      key: 'INTERACTION_SPEED',
+      label: 'Speed',
       min: 10,
       max: 1000,
       step: 10,
-      init: DEFAULT_CONFIG.INTERACTION_COOLDOWN,
+      init: DEFAULT_CONFIG.INTERACTION_SPEED,
     },
     {
       key: 'REPRODUCTION_COST',
-      label: 'Reproduction Cost',
+      label: 'Repro Cost',
       min: 50,
       max: 150,
       step: 10,
@@ -245,7 +314,7 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
     },
     {
       key: 'FOOD_SPAWN_RATE',
-      label: 'Food Spawn Rate',
+      label: 'Food Rate',
       min: 0,
       max: 10,
       step: 1,
@@ -253,7 +322,7 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
     },
     {
       key: 'ERROR_RATE_INTERACTION',
-      label: 'Interaction Error Rate',
+      label: 'Action Error',
       min: 0,
       max: 1,
       step: 0.01,
@@ -261,7 +330,7 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
     },
     {
       key: 'ERROR_RATE_MEMORY',
-      label: 'Memory Error Rate',
+      label: 'Memory Error',
       min: 0,
       max: 1,
       step: 0.01,
@@ -285,7 +354,9 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
   };
 
   const handleStart = () => {
-    const anyStrategyEnabled = Object.values(enabledStrategies).some((enabled) => enabled);
+    const anyStrategyEnabled = Object.values(enabledStrategies).some(
+      (enabled) => enabled
+    );
 
     if (!anyStrategyEnabled) {
       setErrorMessage('Please select at least one strategy');
@@ -293,8 +364,10 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
       return;
     }
 
-    const enabledStrategyCount = Object.values(enabledStrategies).filter(Boolean).length;
-    const carryingCapacity = DEFAULT_CONFIG.INITIAL_CREATURES_PER_STRATEGY * enabledStrategyCount * 2;
+    const enabledStrategyCount =
+      Object.values(enabledStrategies).filter(Boolean).length;
+    const carryingCapacity =
+      DEFAULT_CONFIG.INITIAL_CREATURES_PER_STRATEGY * enabledStrategyCount * 2;
 
     const config: SimulationConfig = {
       ...DEFAULT_CONFIG,
@@ -307,57 +380,65 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col items-center px-4 py-8 md:py-12 overflow-y-auto">
-      <div className="w-full max-w-6xl">
-        {/* Title Section */}
-        <div className="text-center mb-8 md:mb-10">
-          <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">
-            Axelrod's Tournament Simulator
-          </h1>
-          <p className="text-base md:text-lg text-gray-400">
-            Select strategies and configure parameters
-          </p>
-        </div>
+    <div className="min-h-svh bg-gray-900 flex flex-col">
+      {/* Scrollable content area */}
+      <div className="flex-1 overflow-y-auto px-4 py-8 md:py-12 pb-28">
+        <div className="w-full max-w-6xl mx-auto">
+          {/* Title Section */}
+          <div className="text-center mb-8 md:mb-10">
+            <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">
+              Axelrod's Tournament Simulator
+            </h1>
+            <p className="text-base md:text-lg text-gray-400">
+              Select strategies and configure parameters
+            </p>
+          </div>
 
-        {/* Strategy Toggles */}
-        <div className="mb-8 md:mb-10">
-          <h2 className="text-xl md:text-2xl font-semibold text-white mb-4">
-            Strategies
-          </h2>
-          <div className="grid grid-cols-2 md:grid-cols-2 gap-3 md:gap-4">
-            {STRATEGY_ORDER.map((strategy) => (
-              <StrategyCard
-                key={strategy}
-                strategy={strategy}
-                enabled={enabledStrategies[strategy]}
-                onToggle={() => toggleStrategy(strategy)}
-              />
-            ))}
+          {/* Strategy Toggles */}
+          <div className="mb-8 md:mb-10">
+            <h2 className="text-xl md:text-2xl font-semibold text-white mb-4">
+              Strategies
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-2 gap-3 md:gap-4">
+              {STRATEGY_ORDER.map((strategy) => (
+                <StrategyCard
+                  key={strategy}
+                  strategy={strategy}
+                  enabled={enabledStrategies[strategy]}
+                  onToggle={() => toggleStrategy(strategy)}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Parameter Sliders */}
+          <div className="mb-8 md:mb-10">
+            <h2 className="text-xl md:text-2xl font-semibold text-white mb-4">
+              Parameters
+            </h2>
+            <div className="grid grid-cols-2 gap-3 md:gap-4">
+              {sliderConfigs.map((config) => (
+                <Slider
+                  key={config.key}
+                  label={config.label}
+                  value={parameters[config.key as keyof typeof parameters]}
+                  min={config.min}
+                  max={config.max}
+                  step={config.step}
+                  onChange={(value) => updateParameter(config.key, value)}
+                />
+              ))}
+            </div>
           </div>
         </div>
+      </div>
 
-        {/* Parameter Sliders */}
-        <div className="mb-8 md:mb-10">
-          <h2 className="text-xl md:text-2xl font-semibold text-white mb-4">
-            Parameters
-          </h2>
-          <div className="grid grid-cols-2 gap-3 md:gap-4">
-            {sliderConfigs.map((config) => (
-              <Slider
-                key={config.key}
-                label={config.label}
-                value={parameters[config.key as keyof typeof parameters]}
-                min={config.min}
-                max={config.max}
-                step={config.step}
-                onChange={(value) => updateParameter(config.key, value)}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Start Button */}
-        <div className="flex flex-col items-center space-y-4 pb-8">
+      {/* Fixed Start Button */}
+      <div
+        className="fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur-sm border-t border-gray-700 px-4 py-4"
+        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+      >
+        <div className="w-full max-w-6xl mx-auto flex flex-col items-center space-y-2">
           {errorMessage && (
             <div className="bg-red-900/50 border border-red-500 rounded-lg px-4 py-2">
               <p className="text-red-200 text-sm font-medium">{errorMessage}</p>
@@ -380,8 +461,9 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
       </div>
 
       {/* Custom slider styles */}
-      <style dangerouslySetInnerHTML={{
-        __html: `
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
           .slider-thumb::-webkit-slider-thumb {
             appearance: none;
             width: 32px;
@@ -410,8 +492,9 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
           .slider-thumb::-moz-range-thumb:active {
             transform: scale(1.1);
           }
-        `
-      }} />
+        `,
+        }}
+      />
     </div>
   );
 };

@@ -7,7 +7,7 @@ const DEFAULT_CONFIG = {
   INITIAL_CREATURES_PER_STRATEGY: 10,
   CREATURE_RADIUS: 20,
   INTERACTION_DISTANCE: 200,
-  INTERACTION_COOLDOWN: 200,
+  INTERACTION_SPEED: 960, // High = fast (converts to cooldown: 1010 - speed)
   REPRODUCTION_THRESHOLD: 200,
   REPRODUCTION_COST: 100,
   MINIMUM_RESOURCE: 0,
@@ -18,6 +18,10 @@ const DEFAULT_CONFIG = {
   FOOD_VALUE: 10,
   ERROR_RATE_INTERACTION: 0, // 5% chance of noise/error when interacting
   ERROR_RATE_MEMORY: 0, // 5% chance of noise/error when storing a memory
+  SPEED_RANDOM: 50,
+  SPEED_FOOD: 50,
+  SPEED_FLEE: 50,
+  SPEED_CHASE: 50,
 };
 
 // Visual constants
@@ -74,7 +78,7 @@ const STRATEGY_INFO: Record<
   'win-stay-lose-shift': {
     longName: 'Win-Stay Lose-Shift',
     shortName: 'WSLS',
-    emoji: '⚪',
+    emoji: '🟡',
     description: 'Repeat last move if good outcome, change if bad outcome',
   },
   'always cooperate': {
@@ -98,7 +102,7 @@ const STRATEGY_INFO: Record<
   random: {
     longName: 'Random',
     shortName: 'RAND',
-    emoji: '🟡',
+    emoji: '⚪',
     description: 'Choose randomly between cooperation and defection',
   },
 };
@@ -134,6 +138,8 @@ interface CreatureData {
   emoji?: string;
   healthBar?: Phaser.GameObjects.Graphics;
   label?: Phaser.GameObjects.Text;
+  lastHarmer?: { x: number; y: number } | null;
+  lastVictim?: Phaser.GameObjects.Container | null;
 }
 
 // Interface for simulation configuration
@@ -141,7 +147,7 @@ interface SimulationConfig {
   INITIAL_CREATURES_PER_STRATEGY: number;
   CREATURE_RADIUS: number;
   INTERACTION_DISTANCE: number;
-  INTERACTION_COOLDOWN: number;
+  INTERACTION_SPEED: number;
   REPRODUCTION_THRESHOLD: number;
   REPRODUCTION_COST: number;
   MINIMUM_RESOURCE: number;
@@ -152,6 +158,10 @@ interface SimulationConfig {
   FOOD_VALUE: number;
   ERROR_RATE_INTERACTION: number;
   ERROR_RATE_MEMORY: number;
+  SPEED_RANDOM: number;
+  SPEED_FOOD: number;
+  SPEED_FLEE: number;
+  SPEED_CHASE: number;
   enabledStrategies: Record<Strategy, boolean>;
 }
 
@@ -165,7 +175,7 @@ class SimulationScene extends Phaser.Scene {
   // Simulation parameters
   private config!: SimulationConfig;
   private interactionDistance: number = DEFAULT_CONFIG.INTERACTION_DISTANCE;
-  private interactionCooldown: number = DEFAULT_CONFIG.INTERACTION_COOLDOWN;
+  private interactionCooldown: number = 1010 - DEFAULT_CONFIG.INTERACTION_SPEED;
   private reproductionThreshold: number = DEFAULT_CONFIG.REPRODUCTION_THRESHOLD;
   private reproductionCost: number = DEFAULT_CONFIG.REPRODUCTION_COST;
   private minimumResource: number = DEFAULT_CONFIG.MINIMUM_RESOURCE;
@@ -180,6 +190,10 @@ class SimulationScene extends Phaser.Scene {
   private errorRateMemory: number = DEFAULT_CONFIG.ERROR_RATE_MEMORY;
   private foodValue: number = DEFAULT_CONFIG.FOOD_VALUE;
   private enabledStrategies!: Record<Strategy, boolean>;
+  private speedRandom: number = DEFAULT_CONFIG.SPEED_RANDOM;
+  private speedFood: number = DEFAULT_CONFIG.SPEED_FOOD;
+  private speedFlee: number = DEFAULT_CONFIG.SPEED_FLEE;
+  private speedChase: number = DEFAULT_CONFIG.SPEED_CHASE;
 
   // Game state
   private paused: boolean = false;
@@ -196,7 +210,7 @@ class SimulationScene extends Phaser.Scene {
     // Initialize configuration from setup scene
     this.config = data;
     this.interactionDistance = data.INTERACTION_DISTANCE;
-    this.interactionCooldown = data.INTERACTION_COOLDOWN;
+    this.interactionCooldown = 1010 - data.INTERACTION_SPEED; // Convert speed to cooldown
     this.reproductionThreshold = data.REPRODUCTION_THRESHOLD;
     this.reproductionCost = data.REPRODUCTION_COST;
     this.minimumResource = data.MINIMUM_RESOURCE;
@@ -210,6 +224,10 @@ class SimulationScene extends Phaser.Scene {
     this.errorRateMemory = data.ERROR_RATE_MEMORY;
     this.foodValue = data.FOOD_VALUE;
     this.enabledStrategies = data.enabledStrategies;
+    this.speedRandom = data.SPEED_RANDOM;
+    this.speedFood = data.SPEED_FOOD;
+    this.speedFlee = data.SPEED_FLEE;
+    this.speedChase = data.SPEED_CHASE;
   }
 
   create(): void {
@@ -349,8 +367,8 @@ class SimulationScene extends Phaser.Scene {
 
     // Initialize data for the creature
     const creatureData: CreatureData = {
-      velocityX: Phaser.Math.Between(-80, 80),
-      velocityY: Phaser.Math.Between(-80, 80),
+      velocityX: 0,
+      velocityY: 0,
       id: id,
       resources: 100,
       strategy: strategy,
@@ -365,6 +383,8 @@ class SimulationScene extends Phaser.Scene {
       emoji: STRATEGY_INFO[strategy].emoji,
       healthBar: healthBar,
       label: label,
+      lastHarmer: null,
+      lastVictim: null,
     };
 
     // Initialize special properties for specific strategies
@@ -509,26 +529,84 @@ class SimulationScene extends Phaser.Scene {
     const width = this.game.config.width as number;
     const height = this.game.config.height as number;
 
-    // Apply random movement with inertia
-    if (Math.random() < 0.05) {
-      data.velocityX += Phaser.Math.Between(-40, 40);
-      data.velocityY += Phaser.Math.Between(-40, 40);
+    // Initialize velocity components
+    let vx = 0;
+    let vy = 0;
 
-      if (Math.random() < 0.01) {
-        data.velocityX = Phaser.Math.Between(-100, 100);
-        data.velocityY = Phaser.Math.Between(-100, 100);
+    // 1. Random wandering component
+    if (this.speedRandom > 0) {
+      const randomAngle = Math.random() * Math.PI * 2;
+      vx += Math.cos(randomAngle) * this.speedRandom;
+      vy += Math.sin(randomAngle) * this.speedRandom;
+    }
+
+    // 2. Food seeking component
+    if (this.speedFood > 0) {
+      const foodItems = this.foodGroup.getChildren();
+      let nearestFood: Phaser.GameObjects.GameObject | null = null;
+      let nearestDistance = Infinity;
+
+      foodItems.forEach((food) => {
+        const distance = Phaser.Math.Distance.Between(
+          creature.x,
+          creature.y,
+          (food as Phaser.GameObjects.Arc).x,
+          (food as Phaser.GameObjects.Arc).y
+        );
+        if (distance < nearestDistance) {
+          nearestFood = food;
+          nearestDistance = distance;
+        }
+      });
+
+      if (nearestFood) {
+        const dx = (nearestFood as Phaser.GameObjects.Arc).x - creature.x;
+        const dy = (nearestFood as Phaser.GameObjects.Arc).y - creature.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance > 0) {
+          vx += (dx / distance) * this.speedFood;
+          vy += (dy / distance) * this.speedFood;
+        }
       }
     }
 
-    // Slight random jitter
-    data.velocityX += (Math.random() - 0.5) * 5;
-    data.velocityY += (Math.random() - 0.5) * 5;
+    // 3. Flee from harmer component
+    if (this.speedFlee > 0 && data.lastHarmer) {
+      const dx = creature.x - data.lastHarmer.x;
+      const dy = creature.y - data.lastHarmer.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance > 0) {
+        vx += (dx / distance) * this.speedFlee;
+        vy += (dy / distance) * this.speedFlee;
+      }
+      // Clear harmer after fleeing for a while (decay the memory)
+      if (distance > 300) {
+        data.lastHarmer = null;
+      }
+    }
 
-    // Move toward food if nearby
-    this.moveTowardNearestFood(creature);
+    // 4. Chase victim component (move towards last creature we harmed)
+    if (this.speedChase > 0 && data.lastVictim && data.lastVictim.active) {
+      const dx = data.lastVictim.x - creature.x;
+      const dy = data.lastVictim.y - creature.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance > 0) {
+        vx += (dx / distance) * this.speedChase;
+        vy += (dy / distance) * this.speedChase;
+      }
+    }
+    // Clear victim if they're no longer active (dead)
+    if (data.lastVictim && !data.lastVictim.active) {
+      data.lastVictim = null;
+    }
 
-    // Limit speed
-    const maxSpeed = 120;
+    const percent_keep = 0.95
+
+    // Apply velocity with smoothing (blend with previous velocity)
+    data.velocityX = data.velocityX * percent_keep + vx * (1 - percent_keep);
+    data.velocityY = data.velocityY * percent_keep + vy * (1 - percent_keep);
+    // Limit max speed
+    const maxSpeed = 150;
     const speed = Math.sqrt(
       data.velocityX * data.velocityX + data.velocityY * data.velocityY
     );
@@ -562,42 +640,6 @@ class SimulationScene extends Phaser.Scene {
 
     creature.x = newX;
     creature.y = newY;
-  }
-
-  private moveTowardNearestFood(creature: Phaser.GameObjects.Container): void {
-    const data = creature.getData('creatureData') as CreatureData;
-
-    if (data.resources > this.reproductionThreshold * 0.7) return;
-
-    const foodItems = this.foodGroup.getChildren();
-    let nearestFood = null;
-    let nearestDistance = Infinity;
-
-    foodItems.forEach((food) => {
-      const distance = Phaser.Math.Distance.Between(
-        creature.x,
-        creature.y,
-        // @ts-ignore
-        food.x,
-        // @ts-ignore
-        food.y
-      );
-      if (distance < 200 && distance < nearestDistance) {
-        nearestFood = food;
-        nearestDistance = distance;
-      }
-    });
-
-    if (nearestFood) {
-      // @ts-ignore
-      const dx = nearestFood.x - creature.x;
-      // @ts-ignore
-      const dy = nearestFood.y - creature.y;
-      const angle = Math.atan2(dy, dx);
-
-      data.velocityX += Math.cos(angle) * 20;
-      data.velocityY += Math.sin(angle) * 20;
-    }
   }
 
   private createDeathEffect(x: number, y: number, color: number): void {
@@ -696,6 +738,22 @@ class SimulationScene extends Phaser.Scene {
 
     if (actionA === 'C') dataA.cooperationCount++;
     if (actionB === 'C') dataB.cooperationCount++;
+
+    // Track harmer if received negative payoff
+    if (payoffA < 0) {
+      dataA.lastHarmer = { x: creatureB.x, y: creatureB.y };
+    }
+    if (payoffB < 0) {
+      dataB.lastHarmer = { x: creatureA.x, y: creatureA.y };
+    }
+
+    // Track victim (creature this one harmed) for chase behavior
+    if (payoffB < 0) {
+      dataA.lastVictim = creatureB; // A harmed B, so B is A's victim
+    }
+    if (payoffA < 0) {
+      dataB.lastVictim = creatureA; // B harmed A, so A is B's victim
+    }
 
     this.updateMemory(creatureA, creatureB, actionB);
     this.updateMemory(creatureB, creatureA, actionA);
