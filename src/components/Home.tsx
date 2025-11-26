@@ -176,6 +176,7 @@ class SimulationScene extends Phaser.Scene {
   private config!: SimulationConfig;
   private interactionDistance: number = DEFAULT_CONFIG.INTERACTION_DISTANCE;
   private interactionCooldown: number = 1010 - DEFAULT_CONFIG.INTERACTION_SPEED;
+  private payoffScale: number = 500 / DEFAULT_CONFIG.INTERACTION_SPEED; // Payoffs inversely proportional to speed
   private reproductionThreshold: number = DEFAULT_CONFIG.REPRODUCTION_THRESHOLD;
   private reproductionCost: number = DEFAULT_CONFIG.REPRODUCTION_COST;
   private minimumResource: number = DEFAULT_CONFIG.MINIMUM_RESOURCE;
@@ -211,6 +212,7 @@ class SimulationScene extends Phaser.Scene {
     this.config = data;
     this.interactionDistance = data.INTERACTION_DISTANCE;
     this.interactionCooldown = 1010 - data.INTERACTION_SPEED; // Convert speed to cooldown
+    this.payoffScale = 500 / data.INTERACTION_SPEED; // Payoffs inversely proportional to speed
     this.reproductionThreshold = data.REPRODUCTION_THRESHOLD;
     this.reproductionCost = data.REPRODUCTION_COST;
     this.minimumResource = data.MINIMUM_RESOURCE;
@@ -715,18 +717,20 @@ class SimulationScene extends Phaser.Scene {
     let payoffA: number = 0;
     let payoffB: number = 0;
 
+    // Get base payoffs from matrix, then scale by interaction frequency
+    // More frequent interactions = smaller individual payoffs
     if (actionA === 'C' && actionB === 'C') {
-      payoffA = PAYOFF_MATRIX.CC.A;
-      payoffB = PAYOFF_MATRIX.CC.B;
+      payoffA = PAYOFF_MATRIX.CC.A * this.payoffScale;
+      payoffB = PAYOFF_MATRIX.CC.B * this.payoffScale;
     } else if (actionA === 'C' && actionB === 'D') {
-      payoffA = PAYOFF_MATRIX.CD.A;
-      payoffB = PAYOFF_MATRIX.CD.B;
+      payoffA = PAYOFF_MATRIX.CD.A * this.payoffScale;
+      payoffB = PAYOFF_MATRIX.CD.B * this.payoffScale;
     } else if (actionA === 'D' && actionB === 'C') {
-      payoffA = PAYOFF_MATRIX.DC.A;
-      payoffB = PAYOFF_MATRIX.DC.B;
+      payoffA = PAYOFF_MATRIX.DC.A * this.payoffScale;
+      payoffB = PAYOFF_MATRIX.DC.B * this.payoffScale;
     } else if (actionA === 'D' && actionB === 'D') {
-      payoffA = PAYOFF_MATRIX.DD.A;
-      payoffB = PAYOFF_MATRIX.DD.B;
+      payoffA = PAYOFF_MATRIX.DD.A * this.payoffScale;
+      payoffB = PAYOFF_MATRIX.DD.B * this.payoffScale;
     }
 
     dataA.resources += payoffA;
@@ -1087,8 +1091,8 @@ const Home: React.FC = () => {
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
-        height: '100vh',
-        width: '100vw',
+        height: '100dvh',
+        width: '100dvw',
         backgroundColor: '#121220',
         overflow: 'hidden',
         margin: 0,
